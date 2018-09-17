@@ -1,0 +1,10 @@
+/.idea/**
+# !/.idea/misc.xml
+# !/.idea/modules.xml
+# !/.idea/vcs.xml
+**/*.iml
+
+**/target
+**/*.rs.bk
+
+Cargo.lock

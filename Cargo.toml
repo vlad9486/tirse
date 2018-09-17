@@ -1,0 +1,16 @@
+[package]
+name = "tirse"
+version = "0.0.0"
+authors = ["Vladislav Melnik <vlad9486@gmail.com>"]
+license = "MIT"
+
+[features]
+default = ["byteorder", "serde"]
+std = ["byteorder/std", "serde/std"]
+
+[dev-dependencies]
+serde_derive = "1.0.*"
+
+[dependencies]
+byteorder = { version = "1.2.*", default-features = false, optional = true }
+serde = { version = "1.0.*", default-features = false, optional = true }
