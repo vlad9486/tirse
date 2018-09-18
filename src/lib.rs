@@ -1,7 +1,6 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(non_shorthand_field_patterns)]
-#![feature(fmt_internals)]
 
 extern crate byteorder;
 extern crate serde;

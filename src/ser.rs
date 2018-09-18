@@ -39,7 +39,7 @@ where
 {
     pub fn new<WW: Into<W>>(write: WW) -> Self {
         BinarySerializer {
-            write: write.into() as _,
+            write: write.into(),
             phantom_data: marker::PhantomData,
         }
     }
@@ -247,9 +247,7 @@ where
     fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
         let _ = len;
         let sequence = BinarySerializeSeq { raw: Ok(self) };
-        Ok(BinarySerializeTuple {
-            sequence: sequence as _,
-        })
+        Ok(BinarySerializeTuple { sequence: sequence })
     }
 
     fn serialize_tuple_struct(
@@ -260,9 +258,7 @@ where
         let _ = name;
         let _ = len;
         let sequence = BinarySerializeSeq { raw: Ok(self) };
-        Ok(BinarySerializeTupleStruct {
-            sequence: sequence as _,
-        })
+        Ok(BinarySerializeTupleStruct { sequence: sequence })
     }
 
     fn serialize_tuple_variant(
@@ -279,9 +275,7 @@ where
             .serialize(self)
             .and_then(|x| {
                 let sequence = BinarySerializeSeq { raw: Ok(x) };
-                Ok(BinarySerializeTupleVariant {
-                    sequence: sequence as _,
-                })
+                Ok(BinarySerializeTupleVariant { sequence: sequence })
             })
     }
 
@@ -292,9 +286,7 @@ where
         };
         maybe_self.and_then(|x| {
             let sequence = BinarySerializeSeq { raw: Ok(x) };
-            Ok(BinarySerializeMap {
-                sequence: sequence as _,
-            })
+            Ok(BinarySerializeMap { sequence: sequence })
         })
     }
 
@@ -306,9 +298,7 @@ where
         let _ = name;
         let _ = len;
         let sequence = BinarySerializeSeq { raw: Ok(self) };
-        Ok(BinarySerializeStruct {
-            sequence: sequence as _,
-        })
+        Ok(BinarySerializeStruct { sequence: sequence })
     }
 
     fn serialize_struct_variant(
@@ -325,9 +315,7 @@ where
             .serialize(self)
             .and_then(|x| {
                 let sequence = BinarySerializeSeq { raw: Ok(x) };
-                Ok(BinarySerializeStructVariant {
-                    sequence: sequence as _,
-                })
+                Ok(BinarySerializeStructVariant { sequence: sequence })
             })
     }
 
@@ -337,9 +325,7 @@ where
         T: ?Sized + fmt::Display,
     {
         let _ = value;
-        Err(<W::Error as Error>::custom(
-            "cannot collect string without std",
-        ))
+        Err(W::Error::custom("cannot collect string without std"))
     }
 
     fn is_human_readable(&self) -> bool {

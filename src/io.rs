@@ -25,7 +25,7 @@ impl<'de> Read<'de> for slice::Iter<'de, u8> {
 }
 
 pub trait BinaryDeserializerDelegate {
-    fn read_variant<'de, R, E>(r: &mut R) -> Result<u32, <R as Read<'de>>::Error>
+    fn read_variant<'de, R, E>(r: &mut R) -> Result<u32, R::Error>
     where
         R: Read<'de>,
         E: ByteOrder,
@@ -33,7 +33,7 @@ pub trait BinaryDeserializerDelegate {
         r.read(4).map(E::read_u32)
     }
 
-    fn read_length<'de, R, E>(r: &mut R) -> Result<usize, <R as Read<'de>>::Error>
+    fn read_length<'de, R, E>(r: &mut R) -> Result<usize, R::Error>
     where
         R: Read<'de>,
         E: ByteOrder,
