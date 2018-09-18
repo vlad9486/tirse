@@ -33,8 +33,7 @@ where
     }
 
     fn read_ex(&mut self) -> Result<&'de [u8], R::Error> {
-        let length = H::read_length::<_, E>(self.reader)?;
-        self.reader.read(length)
+        H::read_length::<_, E>(self.reader).and_then(|length| self.reader.read(length))
     }
 }
 
@@ -66,7 +65,7 @@ where
         V: Visitor<'de>,
     {
         let _ = visitor;
-        Err(<R::Error as Error>::custom("not supported"))
+        Err(R::Error::custom("not supported"))
     }
 
     primitive!(bool, deserialize_bool, visit_bool, |b: &[u8]| b[0] != 0);
@@ -98,11 +97,8 @@ where
         V: Visitor<'de>,
     {
         use core::str;
-
-        let slice = self.read_ex()?;
-
-        str::from_utf8(slice)
-            .map_err(|e| <R::Error as Error>::custom(e))
+        self.read_ex()
+            .and_then(|slice| str::from_utf8(slice).map_err(R::Error::custom))
             .and_then(|s| visitor.visit_borrowed_str(s))
     }
 
@@ -120,11 +116,11 @@ where
     where
         V: Visitor<'de>,
     {
-        let slice = self.read_ex()?;
-
-        String::from_utf8(slice.to_owned())
-            .map_err(|e| <R::Error as Error>::custom(e))
-            .and_then(|s| visitor.visit_string(s))
+        self.read_ex().map(ToOwned::to_owned).and_then(|bytes| {
+            String::from_utf8(bytes)
+                .map_err(R::Error::custom)
+                .and_then(|s| visitor.visit_string(s))
+        })
     }
 
     fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -157,13 +153,11 @@ where
     where
         V: Visitor<'de>,
     {
-        let variant = H::read_variant::<_, E>(self.reader)?;
-
-        match variant {
+        H::read_variant::<_, E>(self.reader).and_then(|variant| match variant {
             0 => visitor.visit_none(),
             1 => visitor.visit_some(self),
-            _ => Err(<R::Error as Error>::custom("unexpected variant")),
-        }
+            _ => Err(R::Error::custom("unexpected variant")),
+        })
     }
 
     fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -201,8 +195,8 @@ where
     where
         V: Visitor<'de>,
     {
-        let length = H::read_length::<_, E>(self.reader)?;
-        self.deserialize_tuple(length, visitor)
+        H::read_length::<_, E>(self.reader)
+            .and_then(|length| self.deserialize_tuple(length, visitor))
     }
 
     fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
@@ -271,9 +265,58 @@ where
     where
         V: Visitor<'de>,
     {
-        let _ = self;
-        let _ = visitor;
-        unimplemented!()
+        use serde::de::MapAccess;
+        use serde::de::DeserializeSeed;
+        use serde::de::Deserialize;
+
+        struct Access<'a, 'de, R, E, H>
+        where
+            R: Read<'de>,
+            E: ByteOrder,
+            H: BinaryDeserializerDelegate,
+        {
+            deserializer: &'a mut BinaryDeserializer<'de, R, E, H>,
+            len: usize,
+        }
+
+        impl<'a, 'de, R, E, H> MapAccess<'de> for Access<'a, 'de, R, E, H>
+        where
+            R: Read<'de>,
+            E: ByteOrder,
+            H: BinaryDeserializerDelegate,
+        {
+            type Error = R::Error;
+
+            fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
+            where
+                K: DeserializeSeed<'de>,
+            {
+                if self.len > 0 {
+                    self.len -= 1;
+                    DeserializeSeed::deserialize(seed, &mut *self.deserializer).map(Some)
+                } else {
+                    Ok(None)
+                }
+            }
+
+            fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
+            where
+                V: DeserializeSeed<'de>,
+            {
+                DeserializeSeed::deserialize(seed, &mut *self.deserializer)
+            }
+
+            fn size_hint(&self) -> Option<usize> {
+                Some(self.len)
+            }
+        }
+
+        Deserialize::deserialize(&mut *self).and_then(|length| {
+            visitor.visit_map(Access {
+                deserializer: self,
+                len: length,
+            })
+        })
     }
 
     fn deserialize_struct<V>(
@@ -299,11 +342,73 @@ where
     where
         V: Visitor<'de>,
     {
-        let _ = self;
+        use serde::de::EnumAccess;
+        use serde::de::VariantAccess;
+        use serde::de::Deserialize;
+        use serde::de::DeserializeSeed;
+        use serde::de::IntoDeserializer;
+
+        impl<'a, 'de, R, E, H> EnumAccess<'de> for &'a mut BinaryDeserializer<'de, R, E, H>
+        where
+            R: Read<'de>,
+            E: ByteOrder + 'de,
+            H: BinaryDeserializerDelegate,
+        {
+            type Error = R::Error;
+            type Variant = Self;
+
+            fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
+            where
+                V: DeserializeSeed<'de>,
+            {
+                u32::deserialize(&mut *self)
+                    .map(IntoDeserializer::into_deserializer)
+                    .and_then(|variant| seed.deserialize(variant))
+                    .map(|value| (value, self))
+            }
+        }
+
+        impl<'a, 'de, R, E, H> VariantAccess<'de> for &'a mut BinaryDeserializer<'de, R, E, H>
+        where
+            R: Read<'de>,
+            E: ByteOrder + 'de,
+            H: BinaryDeserializerDelegate,
+        {
+            type Error = R::Error;
+
+            fn unit_variant(self) -> Result<(), Self::Error> {
+                Ok(())
+            }
+
+            fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
+            where
+                T: DeserializeSeed<'de>,
+            {
+                seed.deserialize(self)
+            }
+
+            fn tuple_variant<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
+            where
+                V: Visitor<'de>,
+            {
+                self.deserialize_tuple(len, visitor)
+            }
+
+            fn struct_variant<V>(
+                self,
+                fields: &'static [&'static str],
+                visitor: V,
+            ) -> Result<V::Value, Self::Error>
+            where
+                V: Visitor<'de>,
+            {
+                self.deserialize_tuple(fields.len(), visitor)
+            }
+        }
+
         let _ = name;
         let _ = variants;
-        let _ = visitor;
-        unimplemented!()
+        visitor.visit_enum(self)
     }
 
     fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -312,7 +417,7 @@ where
     {
         let _ = self;
         let _ = visitor;
-        Err(<R::Error as Error>::custom("not supported"))
+        Err(R::Error::custom("not supported"))
     }
 
     fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -321,7 +426,7 @@ where
     {
         let _ = self;
         let _ = visitor;
-        Err(<R::Error as Error>::custom("not supported"))
+        Err(R::Error::custom("not supported"))
     }
 
     fn is_human_readable(&self) -> bool {
