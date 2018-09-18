@@ -20,7 +20,7 @@ use tirse::BinarySerializerDelegate;
 use tirse::BinaryDeserializerDelegate;
 use tirse::BinaryDeserializer;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct Point3d {
     x: u32,
     y: u32,
@@ -77,5 +77,9 @@ fn test_struct() {
     let v = p.serialize(serializer).unwrap().consume().consume();
 
     assert_eq!(v, vec![17, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0]);
-    println!("{:?}", v)
+    println!("{:?}", v);
+
+    let mut r = v.as_slice().iter();
+    let q = Point3d::deserialize(&mut DeserializeFromSlice::new(&mut r)).unwrap();
+    assert_eq!(p, q);
 }
