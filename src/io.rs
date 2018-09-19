@@ -35,7 +35,7 @@ pub trait BinaryDeserializerDelegate {
         R: Read<'de>,
         E: ByteOrder;
 
-    fn read_char<'de, R, E>(r: &mut R) -> Result<char, R::Error>
+    fn read_char<'de, R, E>(r: &mut R) -> Result<Option<char>, R::Error>
     where
         R: Read<'de>,
         E: ByteOrder;
@@ -49,7 +49,8 @@ impl BinaryDeserializerDelegate for DefaultBinaryDeserializerDelegate {
         R: Read<'de>,
         E: ByteOrder,
     {
-        r.read(4).map(E::read_u32)
+        use core::mem;
+        r.read(mem::size_of::<u32>()).map(E::read_u32)
     }
 
     fn read_length<'de, R, E>(r: &mut R) -> Result<usize, R::Error>
@@ -57,18 +58,24 @@ impl BinaryDeserializerDelegate for DefaultBinaryDeserializerDelegate {
         R: Read<'de>,
         E: ByteOrder,
     {
-        r.read(8).map(E::read_u64).map(|a| a as _)
+        use core::mem;
+        match mem::size_of::<usize>() {
+            l @ 8 => r.read(l).map(E::read_u64).map(|a| a as _),
+            l @ 4 => r.read(l).map(E::read_u32).map(|a| a as _),
+            l @ _ => r.read(l).map(E::read_u16).map(|a| a as _),
+        }
     }
 
-    fn read_char<'de, R, E>(r: &mut R) -> Result<char, R::Error>
+    fn read_char<'de, R, E>(r: &mut R) -> Result<Option<char>, R::Error>
     where
         R: Read<'de>,
         E: ByteOrder,
     {
         use core::char;
-        r.read(4)
+        use core::mem;
+        r.read(mem::size_of::<u32>())
             .map(E::read_u32)
-            .and_then(|a| char::from_u32(a).ok_or(<R::Error as de::Error>::custom("invalid char")))
+            .map(char::from_u32)
     }
 }
 
@@ -126,7 +133,12 @@ mod without_std {
 
     impl fmt::Display for Error {
         fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-            write!(fmt, "RunOutOfData")
+            use self::Error::*;
+            match self {
+                &RunOutOfData => write!(fmt, "run out of data"),
+                &Serialization => write!(fmt, "some serialization error"),
+                &Deserialization => write!(fmt, "some deserialization error"),
+            }
         }
     }
 
@@ -215,7 +227,7 @@ mod with_std {
 
     impl fmt::Display for Error {
         fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-            write!(fmt, "{}", error::Error::description(self))
+            write!(fmt, "{}", self)
         }
     }
 
@@ -234,6 +246,7 @@ mod with_std {
     impl error::Error for Error {
         fn description(&self) -> &str {
             use self::Error::*;
+            use self::error::Error;
             match self {
                 &RunOutOfData => "run out of data",
                 &Io(ref io_error) => io_error.description(),

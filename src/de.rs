@@ -87,7 +87,12 @@ where
     where
         V: Visitor<'de>,
     {
-        H::read_char::<_, E>(self.reader).and_then(|v| visitor.visit_char(v))
+        H::read_char::<_, E>(self.reader)
+            .and_then(|v| {
+                v.ok_or(R::Error::custom(
+                    "converted integer out of range for `char`",
+                ))
+            }).and_then(|v| visitor.visit_char(v))
     }
 
     fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
