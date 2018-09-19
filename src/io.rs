@@ -40,6 +40,17 @@ pub trait BinaryDeserializerDelegate {
     {
         r.read(8).map(E::read_u64).map(|a| a as _)
     }
+
+    fn read_char<'de, R, E>(r: &mut R) -> Result<char, R::Error>
+    where
+        R: Read<'de>,
+        E: ByteOrder,
+    {
+        use core::char;
+        r.read(4)
+            .map(E::read_u32)
+            .and_then(|a| char::from_u32(a).ok_or(<R::Error as de::Error>::custom("invalid char")))
+    }
 }
 
 pub trait Write {
@@ -51,9 +62,11 @@ pub trait Write {
 pub trait BinarySerializerDelegate {
     type Variant: ser::Serialize;
     type Length: ser::Serialize;
+    type Char: ser::Serialize;
 
     fn transform_variant(v: u32) -> Self::Variant;
     fn transform_length(v: usize) -> Self::Length;
+    fn transform_char(v: char) -> Self::Char;
 }
 
 #[cfg(not(feature = "std"))]

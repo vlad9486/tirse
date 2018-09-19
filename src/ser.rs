@@ -160,8 +160,7 @@ where
     }
 
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
-        let _ = v;
-        unimplemented!()
+        H::transform_char(v).serialize(self)
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
@@ -359,7 +358,7 @@ where
 
         let mut temp = Err(None);
         mem::swap(&mut temp, &mut self.raw);
-        let mut temp = temp.and_then(|s| value.serialize(s).map_err(|e| Some(e)));
+        let mut temp = temp.and_then(|s| value.serialize(s).map_err(Some));
         mem::swap(&mut temp, &mut self.raw);
         self.raw.as_mut().map(|_| ()).map_err(|e| {
             let mut temp = None;
@@ -369,7 +368,7 @@ where
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        self.raw.map_err(|e| e.unwrap())
+        self.raw.map_err(Option::unwrap)
     }
 }
 

@@ -87,9 +87,7 @@ where
     where
         V: Visitor<'de>,
     {
-        let _ = self;
-        let _ = visitor;
-        unimplemented!()
+        H::read_char::<_, E>(self.reader).and_then(|v| visitor.visit_char(v))
     }
 
     fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
