@@ -31,5 +31,7 @@ pub use self::io::Write;
 pub use self::io::Read;
 
 pub use self::io::BinarySerializerDelegate;
+pub use self::io::DefaultBinarySerializerDelegate;
 pub use self::io::BinaryDeserializerDelegate;
+pub use self::io::DefaultBinaryDeserializerDelegate;
 pub use self::io::Error;

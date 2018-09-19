@@ -28,6 +28,25 @@ pub trait BinaryDeserializerDelegate {
     fn read_variant<'de, R, E>(r: &mut R) -> Result<u32, R::Error>
     where
         R: Read<'de>,
+        E: ByteOrder;
+
+    fn read_length<'de, R, E>(r: &mut R) -> Result<usize, R::Error>
+    where
+        R: Read<'de>,
+        E: ByteOrder;
+
+    fn read_char<'de, R, E>(r: &mut R) -> Result<char, R::Error>
+    where
+        R: Read<'de>,
+        E: ByteOrder;
+}
+
+pub struct DefaultBinaryDeserializerDelegate;
+
+impl BinaryDeserializerDelegate for DefaultBinaryDeserializerDelegate {
+    fn read_variant<'de, R, E>(r: &mut R) -> Result<u32, R::Error>
+    where
+        R: Read<'de>,
         E: ByteOrder,
     {
         r.read(4).map(E::read_u32)
@@ -67,6 +86,26 @@ pub trait BinarySerializerDelegate {
     fn transform_variant(v: u32) -> Self::Variant;
     fn transform_length(v: usize) -> Self::Length;
     fn transform_char(v: char) -> Self::Char;
+}
+
+pub struct DefaultBinarySerializerDelegate;
+
+impl BinarySerializerDelegate for DefaultBinarySerializerDelegate {
+    type Variant = u32;
+    type Length = usize;
+    type Char = u32;
+
+    fn transform_variant(v: u32) -> Self::Variant {
+        v
+    }
+
+    fn transform_length(v: usize) -> Self::Length {
+        v
+    }
+
+    fn transform_char(v: char) -> Self::Char {
+        v as _
+    }
 }
 
 #[cfg(not(feature = "std"))]

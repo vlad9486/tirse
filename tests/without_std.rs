@@ -15,7 +15,7 @@ use serde::ser;
 use serde::Serialize;
 
 use tirse::BinarySerializer;
-use tirse::BinarySerializerDelegate;
+use tirse::DefaultBinarySerializerDelegate;
 use tirse::Write;
 
 use core::fmt;
@@ -25,21 +25,6 @@ pub struct Point3d {
     x: f32,
     y: f32,
     z: f32,
-}
-
-struct Helper;
-
-impl BinarySerializerDelegate for Helper {
-    type Variant = u32;
-    type Length = usize;
-
-    fn transform_variant(v: u32) -> Self::Variant {
-        v
-    }
-
-    fn transform_length(v: usize) -> Self::Length {
-        v
-    }
 }
 
 const SMALL_BUFFER_SIZE: usize = 8;
@@ -95,9 +80,9 @@ fn test() {
         z: 0.0,
     };
     let w = SmallBuffer::default();
-    let serializer: BinarySerializer<_, LittleEndian, Helper> = BinarySerializer::new(w);
+    let serializer: BinarySerializer<_, LittleEndian, DefaultBinarySerializerDelegate> = BinarySerializer::new(w);
     let output = Serialize::serialize(&5u64, serializer)
-        .map(|c: BinarySerializer<SmallBuffer, LittleEndian, Helper>| c.consume());
+        .map(|c: BinarySerializer<SmallBuffer, LittleEndian, DefaultBinarySerializerDelegate>| c.consume());
     let buffer = output.unwrap();
 
     assert_eq!(
