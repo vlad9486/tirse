@@ -1,6 +1,6 @@
 [package]
 name = "tirse"
-version = "0.0.0"
+version = "0.0.1"
 authors = ["Vladislav Melnik <vlad9486@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/vlad9486/tirse"
