@@ -35,3 +35,10 @@ pub use self::io::DefaultBinarySerializerDelegate;
 pub use self::io::BinaryDeserializerDelegate;
 pub use self::io::DefaultBinaryDeserializerDelegate;
 pub use self::io::Error;
+
+use byteorder::NativeEndian;
+
+pub type DefaultBinarySerializer<W> =
+    BinarySerializer<W, NativeEndian, DefaultBinarySerializerDelegate>;
+pub type DefaultBinaryDeserializer<R> =
+    BinarySerializer<R, NativeEndian, DefaultBinaryDeserializerDelegate>;
