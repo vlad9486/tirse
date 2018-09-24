@@ -198,8 +198,26 @@ where
     where
         V: Visitor<'de>,
     {
-        H::read_length::<_, E>(self.reader)
-            .and_then(|length| self.deserialize_tuple(length, visitor))
+        use serde::de::SeqAccess;
+        use serde::de::DeserializeSeed;
+
+        impl<'a, 'de, R, E, H> SeqAccess<'de> for &'a mut BinaryDeserializer<'de, R, E, H>
+        where
+            R: Read<'de>,
+            E: ByteOrder,
+            H: BinaryDeserializerDelegate,
+        {
+            type Error = R::Error;
+
+            fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, R::Error>
+            where
+                T: DeserializeSeed<'de>,
+            {
+                DeserializeSeed::deserialize(seed, &mut **self).map(Some)
+            }
+        }
+
+        visitor.visit_seq(self)
     }
 
     fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
