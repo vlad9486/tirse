@@ -15,8 +15,8 @@ where
     E: ByteOrder + 'de,
     H: BinaryDeserializerDelegate,
 {
-    reader: &'de mut R,
-    phantom_data: marker::PhantomData<(E, H)>,
+    read: R,
+    phantom_data: marker::PhantomData<&'de mut (E, H)>,
 }
 
 impl<'de, R, E, H> BinaryDeserializer<'de, R, E, H>
@@ -25,15 +25,15 @@ where
     E: ByteOrder + 'de,
     H: BinaryDeserializerDelegate,
 {
-    pub fn new(read: &'de mut R) -> Self {
+    pub fn new(read: R) -> Self {
         BinaryDeserializer {
-            reader: read,
+            read: read,
             phantom_data: marker::PhantomData,
         }
     }
 
     fn read_ex(&mut self) -> Result<&'de [u8], R::Error> {
-        H::read_length::<_, E>(self.reader).and_then(|length| self.reader.read(length))
+        H::read_length::<_, E>(&mut self.read).and_then(|length| self.read.read(length))
     }
 }
 
@@ -45,7 +45,7 @@ macro_rules! primitive {
         {
             use core::mem;
 
-            self.reader.read(mem::size_of::<$ty>())
+            (&mut self.read).read(mem::size_of::<$ty>())
                 .and_then(|buffer| visitor.$visitor_method($reader(&buffer)))
                 .map_err(Into::into)
         }
@@ -87,7 +87,7 @@ where
     where
         V: Visitor<'de>,
     {
-        H::read_char::<_, E>(self.reader)
+        H::read_char::<_, E>(&mut self.read)
             .and_then(|v| {
                 v.ok_or(R::Error::custom(
                     "converted integer out of range for `char`",
@@ -156,7 +156,7 @@ where
     where
         V: Visitor<'de>,
     {
-        H::read_variant::<_, E>(self.reader).and_then(|variant| match variant {
+        H::read_variant::<_, E>(&mut self.read).and_then(|variant| match variant {
             0 => visitor.visit_none(),
             1 => visitor.visit_some(self),
             _ => Err(R::Error::custom("unexpected variant")),
