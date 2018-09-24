@@ -23,6 +23,7 @@ pub use self::ser::BinarySerializeStructVariant;
 pub use self::ser::BinarySerializer;
 
 pub use self::de::BinaryDeserializer;
+pub use self::de::BinaryDeserializerError;
 
 #[cfg(feature = "std")]
 pub use self::io::WriteWrapper;
@@ -32,13 +33,11 @@ pub use self::io::Read;
 
 pub use self::io::BinarySerializerDelegate;
 pub use self::io::DefaultBinarySerializerDelegate;
-pub use self::io::BinaryDeserializerDelegate;
-pub use self::io::DefaultBinaryDeserializerDelegate;
-pub use self::io::Error;
 
 use byteorder::NativeEndian;
 
 pub type DefaultBinarySerializer<W> =
     BinarySerializer<W, NativeEndian, DefaultBinarySerializerDelegate>;
-pub type DefaultBinaryDeserializer<R> =
-    BinarySerializer<R, NativeEndian, DefaultBinaryDeserializerDelegate>;
+
+pub type DefaultBinaryDeserializer<'de, W> =
+    BinaryDeserializer<'de, W, NativeEndian>;

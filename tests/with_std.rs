@@ -17,7 +17,6 @@ use std::slice::Iter;
 use tirse::WriteWrapper;
 use tirse::BinarySerializer;
 use tirse::DefaultBinarySerializerDelegate;
-use tirse::DefaultBinaryDeserializerDelegate;
 use tirse::BinaryDeserializer;
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Debug)]
@@ -28,7 +27,7 @@ pub struct Point3d {
 }
 
 type SerializerIntoVec = BinarySerializer<WriteWrapper<Vec<u8>>, LittleEndian, DefaultBinarySerializerDelegate>;
-type DeserializeFromSlice<'a> = BinaryDeserializer<'a, Iter<'a, u8>, LittleEndian, DefaultBinaryDeserializerDelegate>;
+type DeserializeFromSlice<'a> = BinaryDeserializer<'a, Iter<'a, u8>, LittleEndian>;
 
 #[test]
 fn test_str() {

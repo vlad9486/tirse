@@ -1,90 +1,93 @@
 use core::slice;
 use byteorder::ByteOrder;
 
-use serde::de;
 use serde::ser;
 
 pub trait Read<'de> {
-    type Error: de::Error;
+    fn read(&mut self, length: usize) -> Result<&'de [u8], usize>;
 
-    fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error>;
+    fn read_variant<E>(&mut self) -> Result<u32, usize>
+    where
+        E: ByteOrder;
+
+    fn read_length<E>(&mut self) -> Result<usize, usize>
+    where
+        E: ByteOrder;
+
+    fn read_char<E>(&mut self) -> Result<Option<char>, usize>
+    where
+        E: ByteOrder;
 }
 
 impl<'a, 'de, R> Read<'de> for &'a mut R
 where
     R: Read<'de>,
 {
-    type Error = R::Error;
-
-    fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error> {
+    fn read(&mut self, length: usize) -> Result<&'de [u8], usize> {
         (&mut **self).read(length)
+    }
+
+    fn read_variant<E>(&mut self) -> Result<u32, usize>
+    where
+        E: ByteOrder,
+    {
+        (&mut **self).read_variant::<E>()
+    }
+
+    fn read_length<E>(&mut self) -> Result<usize, usize>
+    where
+        E: ByteOrder,
+    {
+        (&mut **self).read_length::<E>()
+    }
+
+    fn read_char<E>(&mut self) -> Result<Option<char>, usize>
+    where
+        E: ByteOrder,
+    {
+        (&mut **self).read_char::<E>()
     }
 }
 
 impl<'de> Read<'de> for slice::Iter<'de, u8> {
-    type Error = Error;
-
-    fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error> {
-        if self.as_slice().len() < length {
-            Err(Error::RunOutOfData)
+    fn read(&mut self, length: usize) -> Result<&'de [u8], usize> {
+        let limit = self.as_slice().len();
+        if limit < length {
+            Err(limit)
         } else {
             let s = &self.as_slice()[0..length];
             self.nth(length - 1);
             Ok(s)
         }
     }
-}
 
-pub trait BinaryDeserializerDelegate {
-    fn read_variant<'de, R, E>(r: &mut R) -> Result<u32, R::Error>
+    fn read_variant<E>(&mut self) -> Result<u32, usize>
     where
-        R: Read<'de>,
-        E: ByteOrder;
-
-    fn read_length<'de, R, E>(r: &mut R) -> Result<usize, R::Error>
-    where
-        R: Read<'de>,
-        E: ByteOrder;
-
-    fn read_char<'de, R, E>(r: &mut R) -> Result<Option<char>, R::Error>
-    where
-        R: Read<'de>,
-        E: ByteOrder;
-}
-
-pub struct DefaultBinaryDeserializerDelegate;
-
-impl BinaryDeserializerDelegate for DefaultBinaryDeserializerDelegate {
-    fn read_variant<'de, R, E>(r: &mut R) -> Result<u32, R::Error>
-    where
-        R: Read<'de>,
         E: ByteOrder,
     {
         use core::mem;
-        r.read(mem::size_of::<u32>()).map(E::read_u32)
+        self.read(mem::size_of::<u32>()).map(E::read_u32)
     }
 
-    fn read_length<'de, R, E>(r: &mut R) -> Result<usize, R::Error>
+    fn read_length<E>(&mut self) -> Result<usize, usize>
     where
-        R: Read<'de>,
         E: ByteOrder,
     {
         use core::mem;
         match mem::size_of::<usize>() {
-            l @ 8 => r.read(l).map(E::read_u64).map(|a| a as _),
-            l @ 4 => r.read(l).map(E::read_u32).map(|a| a as _),
-            l @ _ => r.read(l).map(E::read_u16).map(|a| a as _),
+            l @ 8 => self.read(l).map(E::read_u64).map(|a| a as _),
+            l @ 4 => self.read(l).map(E::read_u32).map(|a| a as _),
+            l @ _ => self.read(l).map(E::read_u16).map(|a| a as _),
         }
     }
 
-    fn read_char<'de, R, E>(r: &mut R) -> Result<Option<char>, R::Error>
+    fn read_char<E>(&mut self) -> Result<Option<char>, usize>
     where
-        R: Read<'de>,
         E: ByteOrder,
     {
         use core::char;
         use core::mem;
-        r.read(mem::size_of::<u32>())
+        self.read(mem::size_of::<u32>())
             .map(E::read_u32)
             .map(char::from_u32)
     }
@@ -131,24 +134,19 @@ pub use self::without_std::Error;
 
 #[cfg(not(feature = "std"))]
 mod without_std {
-    use serde::de;
     use serde::ser;
     use core::fmt;
 
     #[derive(Debug)]
     pub enum Error {
-        RunOutOfData,
-        Serialization,
-        Deserialization,
+        Custom,
     }
 
     impl fmt::Display for Error {
         fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
             use self::Error::*;
             match self {
-                &RunOutOfData => write!(fmt, "run out of data"),
-                &Serialization => write!(fmt, "some serialization error"),
-                &Deserialization => write!(fmt, "some deserialization error"),
+                &Custom => write!(fmt, "some serialization error"),
             }
         }
     }
@@ -156,14 +154,7 @@ mod without_std {
     impl<'a> ser::Error for Error {
         fn custom<T: fmt::Display>(desc: T) -> Self {
             let _ = desc;
-            Error::Serialization
-        }
-    }
-
-    impl<'a> de::Error for Error {
-        fn custom<T: fmt::Display>(desc: T) -> Self {
-            let _ = desc;
-            Error::Deserialization
+            Error::Custom
         }
     }
 }
@@ -178,7 +169,6 @@ pub use self::with_std::WriteWrapper;
 mod with_std {
     use super::Write;
 
-    use serde::de;
     use serde::ser;
     use std::error;
     use std::fmt;
@@ -232,8 +222,7 @@ mod with_std {
     pub enum Error {
         RunOutOfData,
         Io(io::Error),
-        Serialization(String),
-        Deserialization(String),
+        Custom(String),
     }
 
     impl fmt::Display for Error {
@@ -244,13 +233,7 @@ mod with_std {
 
     impl ser::Error for Error {
         fn custom<T: fmt::Display>(desc: T) -> Self {
-            Error::Serialization(format!("{}", desc))
-        }
-    }
-
-    impl de::Error for Error {
-        fn custom<T: fmt::Display>(desc: T) -> Self {
-            Error::Deserialization(format!("{}", desc))
+            Error::Custom(format!("{}", desc))
         }
     }
 
@@ -260,8 +243,7 @@ mod with_std {
             match self {
                 &RunOutOfData => "run out of data",
                 &Io(ref io_error) => io_error.description(),
-                &Serialization(ref msg) => msg,
-                &Deserialization(ref msg) => msg,
+                &Custom(ref msg) => msg,
             }
         }
 
