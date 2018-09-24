@@ -39,7 +39,7 @@ where
 
 macro_rules! primitive {
     ($ty:ty, $method:ident, $visitor_method:ident, $reader:expr) => {
-        fn $method<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+        fn $method<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
         where
             V: Visitor<'de>,
         {
@@ -52,7 +52,7 @@ macro_rules! primitive {
     }
 }
 
-impl<'a, 'de, R, E, H> Deserializer<'de> for &'a mut BinaryDeserializer<'de, R, E, H>
+impl<'a, 'de, R, E, H> Deserializer<'de> for BinaryDeserializer<'de, R, E, H>
 where
     R: Read<'de>,
     E: ByteOrder + 'de,
@@ -83,7 +83,7 @@ where
     primitive!(f32, deserialize_f32, visit_f32, E::read_f32);
     primitive!(f64, deserialize_f64, visit_f64, E::read_f64);
 
-    fn deserialize_char<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_char<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -95,7 +95,7 @@ where
             }).and_then(|v| visitor.visit_char(v))
     }
 
-    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_str<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -115,7 +115,7 @@ where
     }
 
     #[cfg(feature = "std")]
-    fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_string<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -126,7 +126,7 @@ where
         })
     }
 
-    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_bytes<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -144,7 +144,7 @@ where
     }
 
     #[cfg(feature = "std")]
-    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_byte_buf<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -152,7 +152,7 @@ where
             .and_then(|slice| visitor.visit_byte_buf(slice.to_owned()))
     }
 
-    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_option<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -201,7 +201,7 @@ where
         use serde::de::SeqAccess;
         use serde::de::DeserializeSeed;
 
-        impl<'a, 'de, R, E, H> SeqAccess<'de> for &'a mut BinaryDeserializer<'de, R, E, H>
+        impl<'de, R, E, H> SeqAccess<'de> for BinaryDeserializer<'de, R, E, H>
         where
             R: Read<'de>,
             E: ByteOrder,
@@ -213,7 +213,8 @@ where
             where
                 T: DeserializeSeed<'de>,
             {
-                DeserializeSeed::deserialize(seed, &mut **self).map(Some)
+                seed.deserialize(BinaryDeserializer::<_, E, H>::new(&mut self.read))
+                    .map(Some)
             }
         }
 
@@ -227,17 +228,17 @@ where
         use serde::de::SeqAccess;
         use serde::de::DeserializeSeed;
 
-        struct Access<'a, 'de, R, E, H>
+        struct Access<'de, R, E, H>
         where
             R: Read<'de>,
             E: ByteOrder,
             H: BinaryDeserializerDelegate,
         {
-            deserializer: &'a mut BinaryDeserializer<'de, R, E, H>,
+            deserializer: BinaryDeserializer<'de, R, E, H>,
             len: usize,
         }
 
-        impl<'a, 'de, R, E, H> SeqAccess<'de> for Access<'a, 'de, R, E, H>
+        impl<'a, 'de, R, E, H> SeqAccess<'de> for Access<'de, R, E, H>
         where
             R: Read<'de>,
             E: ByteOrder,
@@ -251,7 +252,7 @@ where
             {
                 if self.len > 0 {
                     self.len -= 1;
-                    DeserializeSeed::deserialize(seed, &mut *self.deserializer).map(Some)
+                    self.deserializer.next_element_seed(seed)
                 } else {
                     Ok(None)
                 }
@@ -288,19 +289,8 @@ where
     {
         use serde::de::MapAccess;
         use serde::de::DeserializeSeed;
-        use serde::de::Deserialize;
 
-        struct Access<'a, 'de, R, E, H>
-        where
-            R: Read<'de>,
-            E: ByteOrder,
-            H: BinaryDeserializerDelegate,
-        {
-            deserializer: &'a mut BinaryDeserializer<'de, R, E, H>,
-            len: usize,
-        }
-
-        impl<'a, 'de, R, E, H> MapAccess<'de> for Access<'a, 'de, R, E, H>
+        impl<'de, R, E, H> MapAccess<'de> for BinaryDeserializer<'de, R, E, H>
         where
             R: Read<'de>,
             E: ByteOrder,
@@ -312,32 +302,22 @@ where
             where
                 K: DeserializeSeed<'de>,
             {
-                if self.len > 0 {
-                    self.len -= 1;
-                    DeserializeSeed::deserialize(seed, &mut *self.deserializer).map(Some)
-                } else {
-                    Ok(None)
-                }
+                use serde::de::SeqAccess;
+
+                self.next_element_seed(seed)
             }
 
             fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
             where
                 V: DeserializeSeed<'de>,
             {
-                DeserializeSeed::deserialize(seed, &mut *self.deserializer)
-            }
+                use serde::de::SeqAccess;
 
-            fn size_hint(&self) -> Option<usize> {
-                Some(self.len)
+                self.next_element_seed(seed).map(Option::unwrap)
             }
         }
 
-        Deserialize::deserialize(&mut *self).and_then(|length| {
-            visitor.visit_map(Access {
-                deserializer: self,
-                len: length,
-            })
-        })
+        visitor.visit_map(self)
     }
 
     fn deserialize_struct<V>(
@@ -369,7 +349,7 @@ where
         use serde::de::DeserializeSeed;
         use serde::de::IntoDeserializer;
 
-        impl<'a, 'de, R, E, H> EnumAccess<'de> for &'a mut BinaryDeserializer<'de, R, E, H>
+        impl<'de, R, E, H> EnumAccess<'de> for BinaryDeserializer<'de, R, E, H>
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
@@ -378,18 +358,18 @@ where
             type Error = R::Error;
             type Variant = Self;
 
-            fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
+            fn variant_seed<V>(mut self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
             where
                 V: DeserializeSeed<'de>,
             {
-                u32::deserialize(&mut *self)
+                u32::deserialize(BinaryDeserializer::<_, E, H>::new(&mut self.read))
                     .map(IntoDeserializer::into_deserializer)
                     .and_then(|variant| seed.deserialize(variant))
                     .map(|value| (value, self))
             }
         }
 
-        impl<'a, 'de, R, E, H> VariantAccess<'de> for &'a mut BinaryDeserializer<'de, R, E, H>
+        impl<'de, R, E, H> VariantAccess<'de> for BinaryDeserializer<'de, R, E, H>
         where
             R: Read<'de>,
             E: ByteOrder + 'de,

@@ -10,6 +10,17 @@ pub trait Read<'de> {
     fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error>;
 }
 
+impl<'a, 'de, R> Read<'de> for &'a mut R
+where
+    R: Read<'de>,
+{
+    type Error = R::Error;
+
+    fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error> {
+        (&mut **self).read(length)
+    }
+}
+
 impl<'de> Read<'de> for slice::Iter<'de, u8> {
     type Error = Error;
 
@@ -246,7 +257,6 @@ mod with_std {
     impl error::Error for Error {
         fn description(&self) -> &str {
             use self::Error::*;
-            use self::error::Error;
             match self {
                 &RunOutOfData => "run out of data",
                 &Io(ref io_error) => io_error.description(),

@@ -44,7 +44,7 @@ fn test_str() {
         ]
     );
 
-    let s: &str = Deserialize::deserialize(&mut DeserializeFromSlice::new(v.as_slice().iter())).unwrap();
+    let s: &str = Deserialize::deserialize(DeserializeFromSlice::new(v.as_slice().iter())).unwrap();
     assert_eq!(s, "here");
 
     println!("{:?}", v)
@@ -60,6 +60,6 @@ fn test_struct() {
     assert_eq!(v, vec![17, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0]);
     println!("{:?}", v);
 
-    let q = Point3d::deserialize(&mut DeserializeFromSlice::new(v.as_slice().iter())).unwrap();
+    let q = Point3d::deserialize(DeserializeFromSlice::new(v.as_slice().iter())).unwrap();
     assert_eq!(p, q);
 }
