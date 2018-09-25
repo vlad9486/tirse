@@ -17,6 +17,13 @@ pub trait Read<'de> {
     fn read_char<E>(&mut self) -> Result<Option<char>, usize>
     where
         E: ByteOrder;
+
+    fn read_array<E>(&mut self) -> Result<&'de [u8], usize>
+    where
+        E: ByteOrder,
+    {
+        self.read_length::<E>().and_then(|length| self.read(length))
+    }
 }
 
 impl<'a, 'de, R> Read<'de> for &'a mut R

@@ -120,10 +120,6 @@ where
             phantom_data: marker::PhantomData,
         }
     }
-
-    fn read_ex(&mut self) -> Result<&'de [u8], usize> {
-        self.read.read_length::<E>().and_then(|length| self.read.read(length))
-    }
 }
 
 macro_rules! primitive {
@@ -186,7 +182,7 @@ where
     where
         V: Visitor<'de>,
     {
-        self.read_ex()
+        self.read.read_array::<E>()
             .map_err(|_| BinaryDeserializerError::Expired)
             .and_then(|slice| str::from_utf8(slice).map_err(BinaryDeserializerError::Utf8Error))
             .and_then(|s| visitor.visit_borrowed_str(s))
@@ -206,7 +202,7 @@ where
     where
         V: Visitor<'de>,
     {
-        self.read_ex()
+        self.read.read_array::<E>()
             .map_err(|_| BinaryDeserializerError::Expired)
             .map(ToOwned::to_owned).and_then(|bytes| {
             String::from_utf8(bytes)
@@ -219,7 +215,7 @@ where
     where
         V: Visitor<'de>,
     {
-        self.read_ex()
+        self.read.read_array::<E>()
             .map_err(|_| BinaryDeserializerError::Expired)
             .and_then(|slice| visitor.visit_borrowed_bytes(slice))
     }
@@ -238,7 +234,7 @@ where
     where
         V: Visitor<'de>,
     {
-        self.read_ex()
+        self.read.read_array::<E>()
             .map_err(|_| BinaryDeserializerError::Expired)
             .and_then(|slice| visitor.visit_byte_buf(slice.to_owned()))
     }
