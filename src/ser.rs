@@ -3,7 +3,6 @@ use core::fmt;
 
 use core::marker;
 
-#[cfg(not(feature = "std"))]
 use serde::ser::Error;
 
 use serde::ser::SerializeSeq;
@@ -21,21 +20,31 @@ use byteorder::ByteOrder;
 use super::io::Write;
 use super::io::BinarySerializerDelegate;
 
-pub struct BinarySerializer<W, E, H>
+pub trait BinarySerializerError<W>: Error
 where
     W: Write,
-    E: ByteOrder,
-    H: BinarySerializerDelegate,
 {
-    write: W,
-    phantom_data: marker::PhantomData<(E, H)>,
+    fn writing(e: W::Error) -> Self;
+    fn required_alloc() -> Self;
 }
 
-impl<W, E, H> BinarySerializer<W, E, H>
+pub struct BinarySerializer<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
+{
+    write: W,
+    phantom_data: marker::PhantomData<(E, H, Error)>,
+}
+
+impl<W, E, H, Error> BinarySerializer<W, E, H, Error>
+where
+    W: Write,
+    E: ByteOrder,
+    H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
     pub fn new<WW: Into<W>>(write: WW) -> Self {
         BinarySerializer {
@@ -49,21 +58,22 @@ where
     }
 }
 
-impl<W, E, H> Serializer for BinarySerializer<W, E, H>
+impl<W, E, H, Error> Serializer for BinarySerializer<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
     type Ok = Self;
-    type Error = W::Error;
-    type SerializeSeq = BinarySerializeSeq<W, E, H>;
-    type SerializeTuple = BinarySerializeTuple<W, E, H>;
-    type SerializeTupleStruct = BinarySerializeTupleStruct<W, E, H>;
-    type SerializeTupleVariant = BinarySerializeTupleVariant<W, E, H>;
-    type SerializeMap = BinarySerializeMap<W, E, H>;
-    type SerializeStruct = BinarySerializeStruct<W, E, H>;
-    type SerializeStructVariant = BinarySerializeStructVariant<W, E, H>;
+    type Error = Error;
+    type SerializeSeq = BinarySerializeSeq<W, E, H, Error>;
+    type SerializeTuple = BinarySerializeTuple<W, E, H, Error>;
+    type SerializeTupleStruct = BinarySerializeTupleStruct<W, E, H, Error>;
+    type SerializeTupleVariant = BinarySerializeTupleVariant<W, E, H, Error>;
+    type SerializeMap = BinarySerializeMap<W, E, H, Error>;
+    type SerializeStruct = BinarySerializeStruct<W, E, H, Error>;
+    type SerializeStructVariant = BinarySerializeStructVariant<W, E, H, Error>;
 
     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
         self.serialize_i8(if v { 1 } else { 0 })
@@ -91,7 +101,7 @@ where
             .write
             .write(&[v])
             .map(|_| mut_self)
-            .map_err(Into::into)
+            .map_err(Error::writing)
     }
 
     fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
@@ -104,7 +114,7 @@ where
             .write
             .write(&buffer)
             .map(|_| mut_self)
-            .map_err(Into::into)
+            .map_err(Error::writing)
     }
 
     fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
@@ -117,7 +127,7 @@ where
             .write
             .write(&buffer)
             .map(|_| mut_self)
-            .map_err(Into::into)
+            .map_err(Error::writing)
     }
 
     fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
@@ -130,7 +140,7 @@ where
             .write
             .write(&buffer)
             .map(|_| mut_self)
-            .map_err(Into::into)
+            .map_err(Error::writing)
     }
 
     fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
@@ -143,7 +153,7 @@ where
             .write
             .write(&buffer)
             .map(|_| mut_self)
-            .map_err(Into::into)
+            .map_err(Error::writing)
     }
 
     fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
@@ -156,7 +166,7 @@ where
             .write
             .write(&buffer)
             .map(|_| mut_self)
-            .map_err(Into::into)
+            .map_err(Error::writing)
     }
 
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
@@ -324,7 +334,7 @@ where
         T: ?Sized + fmt::Display,
     {
         let _ = value;
-        Err(W::Error::custom("cannot collect string without std"))
+        Err(Error::required_alloc())
     }
 
     fn is_human_readable(&self) -> bool {
@@ -332,23 +342,25 @@ where
     }
 }
 
-pub struct BinarySerializeSeq<W, E, H>
+pub struct BinarySerializeSeq<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
-    raw: Result<BinarySerializer<W, E, H>, Option<W::Error>>,
+    raw: Result<BinarySerializer<W, E, H, Error>, Option<Error>>,
 }
 
-impl<W, E, H> SerializeSeq for BinarySerializeSeq<W, E, H>
+impl<W, E, H, Error> SerializeSeq for BinarySerializeSeq<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
-    type Ok = BinarySerializer<W, E, H>;
-    type Error = W::Error;
+    type Ok = BinarySerializer<W, E, H, Error>;
+    type Error = Error;
 
     fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -372,23 +384,25 @@ where
     }
 }
 
-pub struct BinarySerializeTuple<W, E, H>
+pub struct BinarySerializeTuple<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
-    sequence: BinarySerializeSeq<W, E, H>,
+    sequence: BinarySerializeSeq<W, E, H, Error>,
 }
 
-impl<W, E, H> SerializeTuple for BinarySerializeTuple<W, E, H>
+impl<W, E, H, Error> SerializeTuple for BinarySerializeTuple<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
-    type Ok = BinarySerializer<W, E, H>;
-    type Error = W::Error;
+    type Ok = BinarySerializer<W, E, H, Error>;
+    type Error = Error;
 
     fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -402,23 +416,25 @@ where
     }
 }
 
-pub struct BinarySerializeTupleStruct<W, E, H>
+pub struct BinarySerializeTupleStruct<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
-    sequence: BinarySerializeSeq<W, E, H>,
+    sequence: BinarySerializeSeq<W, E, H, Error>,
 }
 
-impl<W, E, H> SerializeTupleStruct for BinarySerializeTupleStruct<W, E, H>
+impl<W, E, H, Error> SerializeTupleStruct for BinarySerializeTupleStruct<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
-    type Ok = BinarySerializer<W, E, H>;
-    type Error = W::Error;
+    type Ok = BinarySerializer<W, E, H, Error>;
+    type Error = Error;
 
     fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -432,23 +448,25 @@ where
     }
 }
 
-pub struct BinarySerializeTupleVariant<W, E, H>
+pub struct BinarySerializeTupleVariant<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
-    sequence: BinarySerializeSeq<W, E, H>,
+    sequence: BinarySerializeSeq<W, E, H, Error>,
 }
 
-impl<W, E, H> SerializeTupleVariant for BinarySerializeTupleVariant<W, E, H>
+impl<W, E, H, Error> SerializeTupleVariant for BinarySerializeTupleVariant<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
-    type Ok = BinarySerializer<W, E, H>;
-    type Error = W::Error;
+    type Ok = BinarySerializer<W, E, H, Error>;
+    type Error = Error;
 
     fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -462,23 +480,25 @@ where
     }
 }
 
-pub struct BinarySerializeMap<W, E, H>
+pub struct BinarySerializeMap<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
-    sequence: BinarySerializeSeq<W, E, H>,
+    sequence: BinarySerializeSeq<W, E, H, Error>,
 }
 
-impl<W, E, H> SerializeMap for BinarySerializeMap<W, E, H>
+impl<W, E, H, Error> SerializeMap for BinarySerializeMap<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
-    type Ok = BinarySerializer<W, E, H>;
-    type Error = W::Error;
+    type Ok = BinarySerializer<W, E, H, Error>;
+    type Error = Error;
 
     fn serialize_key<T>(&mut self, key: &T) -> Result<(), Self::Error>
     where
@@ -499,23 +519,25 @@ where
     }
 }
 
-pub struct BinarySerializeStruct<W, E, H>
+pub struct BinarySerializeStruct<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
-    sequence: BinarySerializeSeq<W, E, H>,
+    sequence: BinarySerializeSeq<W, E, H, Error>,
 }
 
-impl<W, E, H> SerializeStruct for BinarySerializeStruct<W, E, H>
+impl<W, E, H, Error> SerializeStruct for BinarySerializeStruct<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
-    type Ok = BinarySerializer<W, E, H>;
-    type Error = W::Error;
+    type Ok = BinarySerializer<W, E, H, Error>;
+    type Error = Error;
 
     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
@@ -531,23 +553,25 @@ where
     }
 }
 
-pub struct BinarySerializeStructVariant<W, E, H>
+pub struct BinarySerializeStructVariant<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
-    sequence: BinarySerializeSeq<W, E, H>,
+    sequence: BinarySerializeSeq<W, E, H, Error>,
 }
 
-impl<W, E, H> SerializeStructVariant for BinarySerializeStructVariant<W, E, H>
+impl<W, E, H, Error> SerializeStructVariant for BinarySerializeStructVariant<W, E, H, Error>
 where
     W: Write,
     E: ByteOrder,
     H: BinarySerializerDelegate,
+    Error: BinarySerializerError<W>,
 {
-    type Ok = BinarySerializer<W, E, H>;
-    type Error = W::Error;
+    type Ok = BinarySerializer<W, E, H, Error>;
+    type Error = Error;
 
     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where

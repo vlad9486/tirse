@@ -15,17 +15,11 @@ use serde::ser;
 use serde::Serialize;
 
 use tirse::BinarySerializer;
+use tirse::BinarySerializerError;
 use tirse::DefaultBinarySerializerDelegate;
 use tirse::Write;
 
 use core::fmt;
-
-#[derive(Serialize)]
-pub struct Point3d {
-    x: f32,
-    y: f32,
-    z: f32,
-}
 
 const SMALL_BUFFER_SIZE: usize = 8;
 
@@ -39,6 +33,7 @@ pub struct SmallBuffer {
 pub enum Error {
     SizeLimit,
     Serialization,
+    RequiredAlloc,
 }
 
 impl fmt::Display for Error {
@@ -47,6 +42,7 @@ impl fmt::Display for Error {
         match self {
             &SizeLimit => write!(fmt, "size limit reached"),
             &Serialization => write!(fmt, "some serialization error"),
+            &RequiredAlloc => write!(fmt, "required alloc"),
         }
     }
 }
@@ -72,18 +68,37 @@ impl Write for SmallBuffer {
     }
 }
 
+impl BinarySerializerError<SmallBuffer> for Error {
+    fn writing(e: <SmallBuffer as Write>::Error) -> Self {
+        e
+    }
+
+    fn required_alloc() -> Self {
+        Error::RequiredAlloc
+    }
+}
+
+type SerializerIntoSmallBuffer = BinarySerializer<SmallBuffer, LittleEndian, DefaultBinarySerializerDelegate, Error>;
+
 #[test]
 fn test() {
+    #[derive(Serialize)]
+    pub struct Point3d {
+        x: f32,
+        y: f32,
+        z: f32,
+    }
+
     let _p = Point3d {
         x: 0.4,
         y: 7.5,
         z: 0.0,
     };
     let w = SmallBuffer::default();
-    let serializer: BinarySerializer<_, LittleEndian, DefaultBinarySerializerDelegate> = BinarySerializer::new(w);
-    let output = Serialize::serialize(&5u64, serializer)
-        .map(|c: BinarySerializer<SmallBuffer, LittleEndian, DefaultBinarySerializerDelegate>| c.consume());
-    let buffer = output.unwrap();
+    let serializer = SerializerIntoSmallBuffer::new(w);
+    let buffer = Serialize::serialize(&5u64, serializer)
+        .map(SerializerIntoSmallBuffer::consume)
+        .unwrap();
 
     assert_eq!(
         buffer,

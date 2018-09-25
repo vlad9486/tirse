@@ -1,24 +1,27 @@
 use core::slice;
+use core::fmt;
 use byteorder::ByteOrder;
 
 use serde::ser;
 
 pub trait Read<'de> {
-    fn read(&mut self, length: usize) -> Result<&'de [u8], usize>;
+    type Error: Sized + fmt::Debug + fmt::Display;
 
-    fn read_variant<E>(&mut self) -> Result<u32, usize>
+    fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error>;
+
+    fn read_variant<E>(&mut self) -> Result<u32, Self::Error>
     where
         E: ByteOrder;
 
-    fn read_length<E>(&mut self) -> Result<usize, usize>
+    fn read_length<E>(&mut self) -> Result<usize, Self::Error>
     where
         E: ByteOrder;
 
-    fn read_char<E>(&mut self) -> Result<Option<char>, usize>
+    fn read_char<E>(&mut self) -> Result<Option<char>, Self::Error>
     where
         E: ByteOrder;
 
-    fn read_array<E>(&mut self) -> Result<&'de [u8], usize>
+    fn read_array<E>(&mut self) -> Result<&'de [u8], Self::Error>
     where
         E: ByteOrder,
     {
@@ -30,25 +33,27 @@ impl<'a, 'de, R> Read<'de> for &'a mut R
 where
     R: Read<'de>,
 {
-    fn read(&mut self, length: usize) -> Result<&'de [u8], usize> {
+    type Error = R::Error;
+
+    fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error> {
         (&mut **self).read(length)
     }
 
-    fn read_variant<E>(&mut self) -> Result<u32, usize>
+    fn read_variant<E>(&mut self) -> Result<u32, Self::Error>
     where
         E: ByteOrder,
     {
         (&mut **self).read_variant::<E>()
     }
 
-    fn read_length<E>(&mut self) -> Result<usize, usize>
+    fn read_length<E>(&mut self) -> Result<usize, Self::Error>
     where
         E: ByteOrder,
     {
         (&mut **self).read_length::<E>()
     }
 
-    fn read_char<E>(&mut self) -> Result<Option<char>, usize>
+    fn read_char<E>(&mut self) -> Result<Option<char>, Self::Error>
     where
         E: ByteOrder,
     {
@@ -57,7 +62,9 @@ where
 }
 
 impl<'de> Read<'de> for slice::Iter<'de, u8> {
-    fn read(&mut self, length: usize) -> Result<&'de [u8], usize> {
+    type Error = usize;
+
+    fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error> {
         let limit = self.as_slice().len();
         if limit < length {
             Err(limit)
@@ -68,7 +75,7 @@ impl<'de> Read<'de> for slice::Iter<'de, u8> {
         }
     }
 
-    fn read_variant<E>(&mut self) -> Result<u32, usize>
+    fn read_variant<E>(&mut self) -> Result<u32, Self::Error>
     where
         E: ByteOrder,
     {
@@ -76,7 +83,7 @@ impl<'de> Read<'de> for slice::Iter<'de, u8> {
         self.read(mem::size_of::<u32>()).map(E::read_u32)
     }
 
-    fn read_length<E>(&mut self) -> Result<usize, usize>
+    fn read_length<E>(&mut self) -> Result<usize, Self::Error>
     where
         E: ByteOrder,
     {
@@ -88,7 +95,7 @@ impl<'de> Read<'de> for slice::Iter<'de, u8> {
         }
     }
 
-    fn read_char<E>(&mut self) -> Result<Option<char>, usize>
+    fn read_char<E>(&mut self) -> Result<Option<char>, Self::Error>
     where
         E: ByteOrder,
     {
@@ -101,7 +108,7 @@ impl<'de> Read<'de> for slice::Iter<'de, u8> {
 }
 
 pub trait Write {
-    type Error: ser::Error;
+    type Error: Sized + fmt::Debug + fmt::Display;
 
     fn write(&mut self, bytes: &[u8]) -> Result<(), Self::Error>;
 }
@@ -136,48 +143,11 @@ impl BinarySerializerDelegate for DefaultBinarySerializerDelegate {
     }
 }
 
-#[cfg(not(feature = "std"))]
-pub use self::without_std::Error;
-
-#[cfg(not(feature = "std"))]
-mod without_std {
-    use serde::ser;
-    use core::fmt;
-
-    #[derive(Debug)]
-    pub enum Error {
-        Custom,
-    }
-
-    impl fmt::Display for Error {
-        fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-            use self::Error::*;
-            match self {
-                &Custom => write!(fmt, "some serialization error"),
-            }
-        }
-    }
-
-    impl<'a> ser::Error for Error {
-        fn custom<T: fmt::Display>(desc: T) -> Self {
-            let _ = desc;
-            Error::Custom
-        }
-    }
-}
-
 #[cfg(feature = "std")]
-pub use self::with_std::Error;
-
-#[cfg(feature = "std")]
-pub use self::with_std::WriteWrapper;
-
-#[cfg(feature = "std")]
-mod with_std {
+pub mod with_std {
     use super::Write;
 
-    use serde::ser;
-    use std::error;
+    use std::error::Error;
     use std::fmt;
     use std::io;
 
@@ -186,6 +156,7 @@ mod with_std {
         T: io::Write,
     {
         raw: T,
+        written: usize,
     }
 
     impl<T> From<T> for WriteWrapper<T>
@@ -193,7 +164,10 @@ mod with_std {
         T: io::Write,
     {
         fn from(v: T) -> Self {
-            WriteWrapper { raw: v }
+            WriteWrapper {
+                raw: v,
+                written: 0,
+            }
         }
     }
 
@@ -210,14 +184,15 @@ mod with_std {
     where
         T: io::Write,
     {
-        type Error = Error;
+        type Error = WriteError;
 
         fn write(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
             io::Write::write(&mut self.raw, bytes)
-                .map_err(Error::Io)
+                .map_err(WriteError::Io)
                 .and_then(|length| {
+                    self.written += length;
                     if length < bytes.len() {
-                        Err(Error::RunOutOfData)
+                        Err(WriteError::RunOutOfData(self.written))
                     } else {
                         Ok(())
                     }
@@ -226,36 +201,28 @@ mod with_std {
     }
 
     #[derive(Debug)]
-    pub enum Error {
-        RunOutOfData,
+    pub enum WriteError {
+        RunOutOfData(usize),
         Io(io::Error),
-        Custom(String),
     }
 
-    impl fmt::Display for Error {
+    impl fmt::Display for WriteError {
         fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
             write!(fmt, "{}", self)
         }
     }
 
-    impl ser::Error for Error {
-        fn custom<T: fmt::Display>(desc: T) -> Self {
-            Error::Custom(format!("{}", desc))
-        }
-    }
-
-    impl error::Error for Error {
+    impl Error for WriteError {
         fn description(&self) -> &str {
-            use self::Error::*;
+            use self::WriteError::*;
             match self {
-                &RunOutOfData => "run out of data",
+                &RunOutOfData(_) => "run out of data",
                 &Io(ref io_error) => io_error.description(),
-                &Custom(ref msg) => msg,
             }
         }
 
-        fn cause(&self) -> Option<&error::Error> {
-            use self::Error::*;
+        fn cause(&self) -> Option<&Error> {
+            use self::WriteError::*;
             match self {
                 &Io(ref io_error) => Some(io_error),
                 _ => None,
