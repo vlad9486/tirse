@@ -40,5 +40,5 @@ use byteorder::NativeEndian;
 pub type DefaultBinarySerializer<W, E> =
     BinarySerializer<W, NativeEndian, DefaultBinarySerializerDelegate, E>;
 
-pub type DefaultBinaryDeserializer<'de, W> =
-    BinaryDeserializer<'de, W, NativeEndian>;
+pub type DefaultBinaryDeserializer<'de, W, E> =
+    BinaryDeserializer<'de, W, NativeEndian, E>;

@@ -17,13 +17,17 @@ use serde::de::Error as DeError;
 use std::slice::Iter;
 use std::fmt;
 use std::error;
+use std::str;
+use std::string::FromUtf8Error;
 
 use tirse::WriteWrapper;
 use tirse::Write;
+use tirse::Read;
 use tirse::BinarySerializer;
+use tirse::BinarySerializerError;
 use tirse::DefaultBinarySerializerDelegate;
 use tirse::BinaryDeserializer;
-use tirse::BinarySerializerError;
+use tirse::BinaryDeserializerError;
 
 #[derive(Debug)]
 pub struct Error;
@@ -67,8 +71,42 @@ impl BinarySerializerError<WriteWrapper<Vec<u8>>> for Error {
     }
 }
 
+impl<'a> BinaryDeserializerError<'a, Iter<'a, u8>> for Error {
+    fn reading(e: <Iter<'a, u8> as Read<'a>>::Error) -> Self {
+        let _ = e;
+        Error
+    }
+
+    fn required_alloc() -> Self {
+        Error
+    }
+
+    fn wrong_char() -> Self {
+        Error
+    }
+
+    fn utf8_error(e: str::Utf8Error) -> Self {
+        let _ = e;
+        Error
+    }
+
+    fn from_utf8_error(e: FromUtf8Error) -> Self {
+        let _ = e;
+        Error
+    }
+
+    fn unexpected_variant(variant: u32) -> Self {
+        let _ = variant;
+        Error
+    }
+
+    fn not_supported() -> Self {
+        Error
+    }
+}
+
 type SerializerIntoVec = BinarySerializer<WriteWrapper<Vec<u8>>, LittleEndian, DefaultBinarySerializerDelegate, Error>;
-type DeserializeFromSlice<'a> = BinaryDeserializer<'a, Iter<'a, u8>, LittleEndian>;
+type DeserializeFromSlice<'a> = BinaryDeserializer<'a, Iter<'a, u8>, LittleEndian, Error>;
 
 #[test]
 fn test_str() {
