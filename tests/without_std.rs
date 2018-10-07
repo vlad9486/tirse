@@ -1,18 +1,9 @@
 #![cfg(not(feature = "std"))]
 
-extern crate core;
-
-#[macro_use]
-extern crate serde_derive;
-
-extern crate serde;
-
-extern crate byteorder;
-extern crate tirse;
-
 use byteorder::LittleEndian;
 use serde::ser;
 use serde::Serialize;
+use serde_derive::Serialize;
 
 use tirse::BinarySerializer;
 use tirse::BinarySerializerError;

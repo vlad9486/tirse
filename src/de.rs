@@ -1,5 +1,6 @@
-use core::marker;
 use core::str;
+use core::ops::Range;
+use core::marker::PhantomData;
 
 use serde::de::Error;
 use serde::de::Visitor;
@@ -9,79 +10,42 @@ use byteorder::ByteOrder;
 
 use super::io::Read;
 
-#[cfg(feature = "std")]
-use std::string::FromUtf8Error;
-
-pub trait BinaryDeserializerError<'de, R>: Error
-where
-    R: Read<'de>,
-{
-    fn reading(e: R::Error) -> Self;
+pub trait BinaryDeserializerError: Error {
+    fn reading(missing: Range<usize>) -> Self;
     fn required_alloc() -> Self;
     fn wrong_char() -> Self;
     fn utf8_error(e: str::Utf8Error) -> Self;
     #[cfg(feature = "std")]
-    fn from_utf8_error(e: FromUtf8Error) -> Self;
+    fn from_utf8_error(e: std::string::FromUtf8Error) -> Self;
     fn unexpected_variant(variant: u32) -> Self;
     fn not_supported() -> Self;
-}
-
-impl<'a, 'de, R, T> BinaryDeserializerError<'de, &'a mut R> for T
-where
-    R: Read<'de>,
-    T: BinaryDeserializerError<'de, R>,
-{
-    fn reading(e: R::Error) -> Self {
-        T::reading(e)
-    }
-
-    fn required_alloc() -> Self {
-        T::required_alloc()
-    }
-
-    fn wrong_char() -> Self {
-        T::wrong_char()
-    }
-
-    fn utf8_error(e: str::Utf8Error) -> Self {
-        T::utf8_error(e)
-    }
-
-    #[cfg(feature = "std")]
-    fn from_utf8_error(e: FromUtf8Error) -> Self {
-        T::from_utf8_error(e)
-    }
-
-    fn unexpected_variant(variant: u32) -> Self {
-        T::unexpected_variant(variant)
-    }
-
-    fn not_supported() -> Self {
-        T::not_supported()
-    }
 }
 
 pub struct BinaryDeserializer<'de, R, E, Error>
 where
     R: Read<'de>,
     E: ByteOrder + 'de,
-    Error: BinaryDeserializerError<'de, R>,
+    Error: BinaryDeserializerError,
 {
     read: R,
-    phantom_data: marker::PhantomData<&'de mut (E, Error)>,
+    phantom_data: PhantomData<&'de mut (E, Error)>,
 }
 
 impl<'de, R, E, Error> BinaryDeserializer<'de, R, E, Error>
 where
     R: Read<'de>,
     E: ByteOrder + 'de,
-    Error: BinaryDeserializerError<'de, R>,
+    Error: BinaryDeserializerError,
 {
     pub fn new(read: R) -> Self {
         BinaryDeserializer {
             read: read,
-            phantom_data: marker::PhantomData,
+            phantom_data: PhantomData,
         }
+    }
+
+    pub fn split(&mut self) -> BinaryDeserializer<'de, &mut R, E, Error> {
+        BinaryDeserializer::new(&mut self.read)
     }
 }
 
@@ -104,7 +68,7 @@ impl<'a, 'de, R, E, Error> Deserializer<'de> for BinaryDeserializer<'de, R, E, E
 where
     R: Read<'de>,
     E: ByteOrder + 'de,
-    Error: BinaryDeserializerError<'de, R>,
+    Error: BinaryDeserializerError,
 {
     type Error = Error;
 
@@ -135,21 +99,27 @@ where
     where
         V: Visitor<'de>,
     {
-        self.read.read_char::<E>()
+        self.read
+            .read_char::<E>()
             .map_err(Error::reading)
-            .and_then(|v| {
-                v.ok_or(Error::wrong_char())
-            }).and_then(|v| visitor.visit_char(v))
+            .and_then(|v| v.ok_or(Error::wrong_char()))
+            .and_then(|v| visitor.visit_char(v))
     }
 
     fn deserialize_str<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        self.read.read_array::<E>()
+        self.read
+            .read_length::<E>()
             .map_err(Error::reading)
-            .and_then(|slice| str::from_utf8(slice).map_err(Error::utf8_error))
-            .and_then(|s| visitor.visit_borrowed_str(s))
+            .and_then(|length| {
+                self.read
+                    .read(length)
+                    .map_err(Error::reading)
+                    .and_then(|slice| str::from_utf8(slice).map_err(Error::utf8_error))
+                    .and_then(|s| visitor.visit_borrowed_str(s))
+            })
     }
 
     #[cfg(not(feature = "std"))]
@@ -166,22 +136,35 @@ where
     where
         V: Visitor<'de>,
     {
-        self.read.read_array::<E>()
+        self.read
+            .read_length::<E>()
             .map_err(Error::reading)
-            .map(ToOwned::to_owned).and_then(|bytes| {
-            String::from_utf8(bytes)
-                .map_err(Error::from_utf8_error)
-                .and_then(|s| visitor.visit_string(s))
-        })
+            .and_then(|length| {
+                self.read
+                    .read(length)
+                    .map_err(Error::reading)
+                    .map(ToOwned::to_owned)
+                    .and_then(|bytes| {
+                        String::from_utf8(bytes)
+                            .map_err(Error::from_utf8_error)
+                            .and_then(|s| visitor.visit_string(s))
+                    })
+            })
     }
 
     fn deserialize_bytes<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        self.read.read_array::<E>()
+        self.read
+            .read_length::<E>()
             .map_err(Error::reading)
-            .and_then(|slice| visitor.visit_borrowed_bytes(slice))
+            .and_then(|length| {
+                self.read
+                    .read(length)
+                    .map_err(Error::reading)
+                    .and_then(|slice| visitor.visit_borrowed_bytes(slice))
+            })
     }
 
     #[cfg(not(feature = "std"))]
@@ -198,16 +181,23 @@ where
     where
         V: Visitor<'de>,
     {
-        self.read.read_array::<E>()
+        self.read
+            .read_length::<E>()
             .map_err(Error::reading)
-            .and_then(|slice| visitor.visit_byte_buf(slice.to_owned()))
+            .and_then(|length| {
+                self.read
+                    .read(length)
+                    .map_err(Error::reading)
+                    .and_then(|slice| visitor.visit_byte_buf(slice.to_owned()))
+            })
     }
 
     fn deserialize_option<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        self.read.read_variant::<E>()
+        self.read
+            .read_variant::<E>()
             .map_err(Error::reading)
             .and_then(|variant| match variant {
                 0 => visitor.visit_none(),
@@ -258,16 +248,15 @@ where
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
-            Error: BinaryDeserializerError<'de, R>,
+            Error: BinaryDeserializerError,
         {
-            type Error = <Self as Deserializer<'de>>::Error;
+            type Error = Error;
 
             fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
             where
                 T: DeserializeSeed<'de>,
             {
-                seed.deserialize(BinaryDeserializer::<&mut R, E, Error>::new(&mut self.read))
-                    .map(Some)
+                seed.deserialize(self.split()).map(Some)
             }
         }
 
@@ -285,7 +274,7 @@ where
         where
             R: Read<'de>,
             E: ByteOrder,
-            Error: BinaryDeserializerError<'de, R>,
+            Error: BinaryDeserializerError,
         {
             deserializer: BinaryDeserializer<'de, R, E, Error>,
             len: usize,
@@ -295,9 +284,9 @@ where
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
-            Error: BinaryDeserializerError<'de, R>,
+            Error: BinaryDeserializerError,
         {
-            type Error = <BinaryDeserializer<'de, R, E, Error> as Deserializer<'de>>::Error;
+            type Error = Error;
 
             fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
             where
@@ -347,9 +336,9 @@ where
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
-            Error: BinaryDeserializerError<'de, R>,
+            Error: BinaryDeserializerError,
         {
-            type Error = <Self as Deserializer<'de>>::Error;
+            type Error = Error;
 
             fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
             where
@@ -406,16 +395,16 @@ where
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
-            Error: BinaryDeserializerError<'de, R>,
+            Error: BinaryDeserializerError,
         {
-            type Error = <BinaryDeserializer<'de, R, E, Error> as Deserializer<'de>>::Error;
+            type Error = Error;
             type Variant = Self;
 
             fn variant_seed<V>(mut self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
             where
                 V: DeserializeSeed<'de>,
             {
-                u32::deserialize(BinaryDeserializer::<&mut R, E, Error>::new(&mut self.read))
+                u32::deserialize(self.split())
                     .map(IntoDeserializer::into_deserializer)
                     .and_then(|variant| seed.deserialize(variant))
                     .map(|value| (value, self))
@@ -426,9 +415,9 @@ where
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
-            Error: BinaryDeserializerError<'de, R>,
+            Error: BinaryDeserializerError,
         {
-            type Error = <BinaryDeserializer<'de, R, E, Error> as Deserializer<'de>>::Error;
+            type Error = Error;
 
             fn unit_variant(self) -> Result<(), Self::Error> {
                 Ok(())

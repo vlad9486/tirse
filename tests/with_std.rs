@@ -1,28 +1,22 @@
 #![cfg(feature = "std")]
 
-#[macro_use]
-extern crate serde_derive;
-
-extern crate serde;
-
-extern crate byteorder;
-extern crate tirse;
-
 use byteorder::LittleEndian;
 use serde::Serialize;
 use serde::Deserialize;
 use serde::ser::Error as SerError;
 use serde::de::Error as DeError;
+use serde_derive::Serialize;
+use serde_derive::Deserialize;
 
 use std::slice::Iter;
 use std::fmt;
 use std::error;
 use std::str;
 use std::string::FromUtf8Error;
+use std::ops::Range;
 
 use tirse::WriteWrapper;
 use tirse::Write;
-use tirse::Read;
 use tirse::BinarySerializer;
 use tirse::BinarySerializerError;
 use tirse::DefaultBinarySerializerDelegate;
@@ -71,9 +65,9 @@ impl BinarySerializerError<WriteWrapper<Vec<u8>>> for Error {
     }
 }
 
-impl<'a> BinaryDeserializerError<'a, Iter<'a, u8>> for Error {
-    fn reading(e: <Iter<'a, u8> as Read<'a>>::Error) -> Self {
-        let _ = e;
+impl<'a> BinaryDeserializerError for Error {
+    fn reading(missing: Range<usize>) -> Self {
+        let _ = missing;
         Error
     }
 

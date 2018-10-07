@@ -182,7 +182,8 @@ where
         (0..v.len())
             .fold(seq, |seq, index| {
                 seq.and_then(|mut s| s.serialize_element(&v[index]).map(|_| s))
-            }).and_then(|s| s.end())
+            })
+            .and_then(|s| s.end())
     }
 
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {

@@ -1,59 +1,49 @@
 use core::slice;
 use core::fmt;
+use core::ops::Range;
 use byteorder::ByteOrder;
 
 use serde::ser;
 
 pub trait Read<'de> {
-    type Error: Sized + fmt::Debug + fmt::Display;
+    fn read(&mut self, length: usize) -> Result<&'de [u8], Range<usize>>;
 
-    fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error>;
-
-    fn read_variant<E>(&mut self) -> Result<u32, Self::Error>
+    fn read_variant<E>(&mut self) -> Result<u32, Range<usize>>
     where
         E: ByteOrder;
 
-    fn read_length<E>(&mut self) -> Result<usize, Self::Error>
+    fn read_length<E>(&mut self) -> Result<usize, Range<usize>>
     where
         E: ByteOrder;
 
-    fn read_char<E>(&mut self) -> Result<Option<char>, Self::Error>
+    fn read_char<E>(&mut self) -> Result<Option<char>, Range<usize>>
     where
         E: ByteOrder;
-
-    fn read_array<E>(&mut self) -> Result<&'de [u8], Self::Error>
-    where
-        E: ByteOrder,
-    {
-        self.read_length::<E>().and_then(|length| self.read(length))
-    }
 }
 
 impl<'a, 'de, R> Read<'de> for &'a mut R
 where
     R: Read<'de>,
 {
-    type Error = R::Error;
-
-    fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error> {
+    fn read(&mut self, length: usize) -> Result<&'de [u8], Range<usize>> {
         (&mut **self).read(length)
     }
 
-    fn read_variant<E>(&mut self) -> Result<u32, Self::Error>
+    fn read_variant<E>(&mut self) -> Result<u32, Range<usize>>
     where
         E: ByteOrder,
     {
         (&mut **self).read_variant::<E>()
     }
 
-    fn read_length<E>(&mut self) -> Result<usize, Self::Error>
+    fn read_length<E>(&mut self) -> Result<usize, Range<usize>>
     where
         E: ByteOrder,
     {
         (&mut **self).read_length::<E>()
     }
 
-    fn read_char<E>(&mut self) -> Result<Option<char>, Self::Error>
+    fn read_char<E>(&mut self) -> Result<Option<char>, Range<usize>>
     where
         E: ByteOrder,
     {
@@ -61,13 +51,18 @@ where
     }
 }
 
-impl<'de> Read<'de> for slice::Iter<'de, u8> {
-    type Error = usize;
+pub trait Crop<'de>
+where
+    Self: Sized + Read<'de>,
+{
+    fn crop(&self, length: usize) -> Result<Self, Range<usize>>;
+}
 
-    fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error> {
+impl<'de> Read<'de> for slice::Iter<'de, u8> {
+    fn read(&mut self, length: usize) -> Result<&'de [u8], Range<usize>> {
         let limit = self.as_slice().len();
         if limit < length {
-            Err(limit)
+            Err(limit..length)
         } else {
             let s = &self.as_slice()[0..length];
             self.nth(length - 1);
@@ -75,7 +70,7 @@ impl<'de> Read<'de> for slice::Iter<'de, u8> {
         }
     }
 
-    fn read_variant<E>(&mut self) -> Result<u32, Self::Error>
+    fn read_variant<E>(&mut self) -> Result<u32, Range<usize>>
     where
         E: ByteOrder,
     {
@@ -83,7 +78,7 @@ impl<'de> Read<'de> for slice::Iter<'de, u8> {
         self.read(mem::size_of::<u32>()).map(E::read_u32)
     }
 
-    fn read_length<E>(&mut self) -> Result<usize, Self::Error>
+    fn read_length<E>(&mut self) -> Result<usize, Range<usize>>
     where
         E: ByteOrder,
     {
@@ -95,7 +90,7 @@ impl<'de> Read<'de> for slice::Iter<'de, u8> {
         }
     }
 
-    fn read_char<E>(&mut self) -> Result<Option<char>, Self::Error>
+    fn read_char<E>(&mut self) -> Result<Option<char>, Range<usize>>
     where
         E: ByteOrder,
     {
@@ -104,6 +99,17 @@ impl<'de> Read<'de> for slice::Iter<'de, u8> {
         self.read(mem::size_of::<u32>())
             .map(E::read_u32)
             .map(char::from_u32)
+    }
+}
+
+impl<'de> Crop<'de> for slice::Iter<'de, u8> {
+    fn crop(&self, length: usize) -> Result<Self, Range<usize>> {
+        let slice = self.as_slice();
+        if slice.len() < length {
+            Err(slice.len()..length)
+        } else {
+            Ok(slice[0..length].iter())
+        }
     }
 }
 
@@ -164,10 +170,7 @@ pub mod with_std {
         T: io::Write,
     {
         fn from(v: T) -> Self {
-            WriteWrapper {
-                raw: v,
-                written: 0,
-            }
+            WriteWrapper { raw: v, written: 0 }
         }
     }
 

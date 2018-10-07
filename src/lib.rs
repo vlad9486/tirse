@@ -1,12 +1,5 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(feature = "std"), no_std)]
-#![allow(non_shorthand_field_patterns)]
-
-extern crate byteorder;
-extern crate serde;
-
-#[cfg(feature = "std")]
-extern crate core;
 
 mod ser;
 mod de;
@@ -31,6 +24,7 @@ pub use self::io::with_std::*;
 
 pub use self::io::Write;
 pub use self::io::Read;
+pub use self::io::Crop;
 
 pub use self::io::BinarySerializerDelegate;
 pub use self::io::DefaultBinarySerializerDelegate;
@@ -40,5 +34,4 @@ use byteorder::NativeEndian;
 pub type DefaultBinarySerializer<W, E> =
     BinarySerializer<W, NativeEndian, DefaultBinarySerializerDelegate, E>;
 
-pub type DefaultBinaryDeserializer<'de, W, E> =
-    BinaryDeserializer<'de, W, NativeEndian, E>;
+pub type DefaultBinaryDeserializer<'de, R, E> = BinaryDeserializer<'de, R, NativeEndian, E>;

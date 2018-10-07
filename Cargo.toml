@@ -1,10 +1,11 @@
 [package]
 name = "tirse"
-version = "0.0.2"
+version = "0.1.0"
 authors = ["Vladislav Melnik <vlad9486@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/vlad9486/tirse"
 description = "serde frontent for binary format"
+edition = "2018"
 
 [features]
 default = ["byteorder", "serde"]
