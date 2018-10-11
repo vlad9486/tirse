@@ -4,6 +4,7 @@
 mod ser;
 mod de;
 mod io;
+mod err;
 
 pub use self::ser::BinarySerializeSeq;
 pub use self::ser::BinarySerializeTuple;
@@ -19,19 +20,20 @@ pub use self::ser::BinarySerializerError;
 pub use self::de::BinaryDeserializer;
 pub use self::de::BinaryDeserializerError;
 
+pub use self::err::DisplayCollector;
+
 #[cfg(feature = "std")]
 pub use self::io::with_std::*;
 
 pub use self::io::Write;
 pub use self::io::Read;
-pub use self::io::Crop;
 
 pub use self::io::BinarySerializerDelegate;
 pub use self::io::DefaultBinarySerializerDelegate;
 
 use byteorder::NativeEndian;
 
-pub type DefaultBinarySerializer<W, E> =
-    BinarySerializer<W, NativeEndian, DefaultBinarySerializerDelegate, E>;
+pub type DefaultBinarySerializer<W, D> =
+    BinarySerializer<W, NativeEndian, DefaultBinarySerializerDelegate, D>;
 
-pub type DefaultBinaryDeserializer<'de, R, E> = BinaryDeserializer<'de, R, NativeEndian, E>;
+pub type DefaultBinaryDeserializer<'de, R, D> = BinaryDeserializer<'de, R, NativeEndian, D>;

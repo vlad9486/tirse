@@ -1,13 +1,10 @@
 #![cfg(not(feature = "std"))]
 
-use byteorder::LittleEndian;
-use serde::ser;
 use serde::Serialize;
 use serde_derive::Serialize;
 
-use tirse::BinarySerializer;
-use tirse::BinarySerializerError;
-use tirse::DefaultBinarySerializerDelegate;
+use tirse::DefaultBinarySerializer;
+use tirse::DisplayCollector;
 use tirse::Write;
 
 use core::fmt;
@@ -23,8 +20,6 @@ pub struct SmallBuffer {
 #[derive(Debug, Clone)]
 pub enum Error {
     SizeLimit,
-    Serialization,
-    RequiredAlloc,
 }
 
 impl fmt::Display for Error {
@@ -32,15 +27,7 @@ impl fmt::Display for Error {
         use self::Error::*;
         match self {
             &SizeLimit => write!(fmt, "size limit reached"),
-            &Serialization => write!(fmt, "some serialization error"),
-            &RequiredAlloc => write!(fmt, "required alloc"),
         }
-    }
-}
-
-impl ser::Error for Error {
-    fn custom<T: fmt::Display>(_desc: T) -> Self {
-        Error::Serialization
     }
 }
 
@@ -59,17 +46,25 @@ impl Write for SmallBuffer {
     }
 }
 
-impl BinarySerializerError<SmallBuffer> for Error {
-    fn writing(e: <SmallBuffer as Write>::Error) -> Self {
-        e
-    }
+#[derive(Debug, Serialize)]
+pub struct FakeDisplayCollector;
 
-    fn required_alloc() -> Self {
-        Error::RequiredAlloc
+impl fmt::Display for FakeDisplayCollector {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "some internal error")
     }
 }
 
-type SerializerIntoSmallBuffer = BinarySerializer<SmallBuffer, LittleEndian, DefaultBinarySerializerDelegate, Error>;
+impl DisplayCollector for FakeDisplayCollector {
+    fn display<T>(msg: &T) -> Self
+    where
+        T: ?Sized + fmt::Display,
+    {
+        let _ = msg;
+        FakeDisplayCollector
+    }
+}
+
 
 #[test]
 fn test() {
@@ -86,9 +81,11 @@ fn test() {
         z: 0.0,
     };
     let w = SmallBuffer::default();
-    let serializer = SerializerIntoSmallBuffer::new(w);
+
+    let serializer = DefaultBinarySerializer::<SmallBuffer, FakeDisplayCollector>::new(w);
+
     let buffer = Serialize::serialize(&5u64, serializer)
-        .map(SerializerIntoSmallBuffer::consume)
+        .map(DefaultBinarySerializer::consume)
         .unwrap();
 
     assert_eq!(

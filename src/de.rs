@@ -1,50 +1,62 @@
-use core::str;
-use core::ops::Range;
-use core::marker::PhantomData;
-
-use serde::de::Error;
-use serde::de::Visitor;
-use serde::Deserializer;
-
+use core::{str, fmt, marker};
+use serde::{de::Visitor, Deserializer};
 use byteorder::ByteOrder;
+use either::Either;
+use super::{io::Read, err::{ErrorAdapter, DisplayCollector}};
 
-use super::io::Read;
-
-pub trait BinaryDeserializerError: Error {
-    fn reading(missing: Range<usize>) -> Self;
-    fn required_alloc() -> Self;
-    fn wrong_char() -> Self;
-    fn utf8_error(e: str::Utf8Error) -> Self;
+#[derive(Debug)]
+pub enum BinaryDeserializerError {
+    #[cfg(not(feature = "std"))]
+    RequiredAlloc,
     #[cfg(feature = "std")]
-    fn from_utf8_error(e: std::string::FromUtf8Error) -> Self;
-    fn unexpected_variant(variant: u32) -> Self;
-    fn not_supported() -> Self;
+    FromUtf8Error(std::string::FromUtf8Error),
+    WrongChar(u32),
+    Utf8Error(str::Utf8Error),
+    UnexpectedVariant(u32),
+    NotSupported,
 }
 
-pub struct BinaryDeserializer<'de, R, E, Error>
+impl fmt::Display for BinaryDeserializerError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::BinaryDeserializerError::*;
+
+        match self {
+            #[cfg(not(feature = "std"))]
+            &RequiredAlloc => write!(f, "required alloc"),
+            #[cfg(feature = "std")]
+            &FromUtf8Error(ref e) => write!(f, "{}", e),
+            &WrongChar(code) => write!(f, "wrong char code: {}", code),
+            &Utf8Error(ref e) => write!(f, "{}", e),
+            &UnexpectedVariant(code) => write!(f, "unexpected variant code: {}", code),
+            &NotSupported => write!(f, "not supported"),
+        }
+    }
+}
+
+pub struct BinaryDeserializer<'de, R, E, D>
 where
     R: Read<'de>,
     E: ByteOrder + 'de,
-    Error: BinaryDeserializerError,
+    D: DisplayCollector,
 {
     read: R,
-    phantom_data: PhantomData<&'de mut (E, Error)>,
+    phantom_data: marker::PhantomData<&'de mut (E, D)>,
 }
 
-impl<'de, R, E, Error> BinaryDeserializer<'de, R, E, Error>
+impl<'de, R, E, D> BinaryDeserializer<'de, R, E, D>
 where
     R: Read<'de>,
     E: ByteOrder + 'de,
-    Error: BinaryDeserializerError,
+    D: DisplayCollector,
 {
     pub fn new(read: R) -> Self {
         BinaryDeserializer {
             read: read,
-            phantom_data: PhantomData,
+            phantom_data: marker::PhantomData,
         }
     }
 
-    pub fn split(&mut self) -> BinaryDeserializer<'de, &mut R, E, Error> {
+    pub fn split(&mut self) -> BinaryDeserializer<'de, &mut R, E, D> {
         BinaryDeserializer::new(&mut self.read)
     }
 }
@@ -57,27 +69,28 @@ macro_rules! primitive {
         {
             use core::mem;
 
-            (&mut self.read).read(mem::size_of::<$ty>())
-                .map_err(Error::reading)
+            self.read.read(mem::size_of::<$ty>())
+                .map_err(Either::Right)
+                .map_err(ErrorAdapter::Inner)
                 .and_then(|buffer| visitor.$visitor_method($reader(&buffer)))
         }
     }
 }
 
-impl<'a, 'de, R, E, Error> Deserializer<'de> for BinaryDeserializer<'de, R, E, Error>
+impl<'a, 'de, R, E, D> Deserializer<'de> for BinaryDeserializer<'de, R, E, D>
 where
     R: Read<'de>,
     E: ByteOrder + 'de,
-    Error: BinaryDeserializerError,
+    D: DisplayCollector + fmt::Display + fmt::Debug,
 {
-    type Error = Error;
+    type Error = ErrorAdapter<Either<BinaryDeserializerError, R::Error>, D>;
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
         let _ = visitor;
-        Err(Error::not_supported())
+        Err(ErrorAdapter::Inner(Either::Left(BinaryDeserializerError::NotSupported)))
     }
 
     primitive!(bool, deserialize_bool, visit_bool, |b: &[u8]| b[0] != 0);
@@ -101,8 +114,12 @@ where
     {
         self.read
             .read_char::<E>()
-            .map_err(Error::reading)
-            .and_then(|v| v.ok_or(Error::wrong_char()))
+            .map_err(Either::Right)
+            .and_then(|v| v
+                .map_err(BinaryDeserializerError::WrongChar)
+                .map_err(Either::Left)
+            )
+            .map_err(ErrorAdapter::Inner)
             .and_then(|v| visitor.visit_char(v))
     }
 
@@ -112,12 +129,17 @@ where
     {
         self.read
             .read_length::<E>()
-            .map_err(Error::reading)
+            .map_err(Either::Right)
+            .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
                 self.read
                     .read(length)
-                    .map_err(Error::reading)
-                    .and_then(|slice| str::from_utf8(slice).map_err(Error::utf8_error))
+                    .map_err(Either::Right)
+                    .and_then(|slice| str::from_utf8(slice)
+                        .map_err(BinaryDeserializerError::Utf8Error)
+                        .map_err(Either::Left)
+                    )
+                    .map_err(ErrorAdapter::Inner)
                     .and_then(|s| visitor.visit_borrowed_str(s))
             })
     }
@@ -128,7 +150,7 @@ where
         V: Visitor<'de>,
     {
         let _ = visitor;
-        Err(Error::required_alloc())
+        Err(ErrorAdapter::Inner(Either::Left(BinaryDeserializerError::RequiredAlloc)))
     }
 
     #[cfg(feature = "std")]
@@ -138,15 +160,19 @@ where
     {
         self.read
             .read_length::<E>()
-            .map_err(Error::reading)
+            .map_err(Either::Right)
+            .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
                 self.read
                     .read(length)
-                    .map_err(Error::reading)
+                    .map_err(Either::Right)
+                    .map_err(ErrorAdapter::Inner)
                     .map(ToOwned::to_owned)
                     .and_then(|bytes| {
                         String::from_utf8(bytes)
-                            .map_err(Error::from_utf8_error)
+                            .map_err(BinaryDeserializerError::FromUtf8Error)
+                            .map_err(Either::Left)
+                            .map_err(ErrorAdapter::Inner)
                             .and_then(|s| visitor.visit_string(s))
                     })
             })
@@ -158,11 +184,13 @@ where
     {
         self.read
             .read_length::<E>()
-            .map_err(Error::reading)
+            .map_err(Either::Right)
+            .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
                 self.read
                     .read(length)
-                    .map_err(Error::reading)
+                    .map_err(Either::Right)
+                    .map_err(ErrorAdapter::Inner)
                     .and_then(|slice| visitor.visit_borrowed_bytes(slice))
             })
     }
@@ -173,7 +201,7 @@ where
         V: Visitor<'de>,
     {
         let _ = visitor;
-        Err(Error::required_alloc())
+        Err(ErrorAdapter::Inner(Either::Left(BinaryDeserializerError::RequiredAlloc)))
     }
 
     #[cfg(feature = "std")]
@@ -183,11 +211,13 @@ where
     {
         self.read
             .read_length::<E>()
-            .map_err(Error::reading)
+            .map_err(Either::Right)
+            .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
                 self.read
                     .read(length)
-                    .map_err(Error::reading)
+                    .map_err(Either::Right)
+                    .map_err(ErrorAdapter::Inner)
                     .and_then(|slice| visitor.visit_byte_buf(slice.to_owned()))
             })
     }
@@ -198,11 +228,12 @@ where
     {
         self.read
             .read_variant::<E>()
-            .map_err(Error::reading)
+            .map_err(Either::Right)
+            .map_err(ErrorAdapter::Inner)
             .and_then(|variant| match variant {
                 0 => visitor.visit_none(),
                 1 => visitor.visit_some(self),
-                t @ _ => Err(Error::unexpected_variant(t)),
+                t @ _ => Err(ErrorAdapter::Inner(Either::Left(BinaryDeserializerError::UnexpectedVariant(t)))),
             })
     }
 
@@ -241,16 +272,15 @@ where
     where
         V: Visitor<'de>,
     {
-        use serde::de::SeqAccess;
-        use serde::de::DeserializeSeed;
+        use serde::de::{SeqAccess, DeserializeSeed};
 
-        impl<'de, R, E, Error> SeqAccess<'de> for BinaryDeserializer<'de, R, E, Error>
+        impl<'de, R, E, D> SeqAccess<'de> for BinaryDeserializer<'de, R, E, D>
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
-            Error: BinaryDeserializerError,
+            D: DisplayCollector + fmt::Display + fmt::Debug,
         {
-            type Error = Error;
+            type Error = ErrorAdapter<Either<BinaryDeserializerError, R::Error>, D>;
 
             fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
             where
@@ -267,26 +297,25 @@ where
     where
         V: Visitor<'de>,
     {
-        use serde::de::SeqAccess;
-        use serde::de::DeserializeSeed;
+        use serde::de::{SeqAccess, DeserializeSeed};
 
-        struct Access<'de, R, E, Error>
+        struct Access<'de, R, E, D>
         where
             R: Read<'de>,
             E: ByteOrder,
-            Error: BinaryDeserializerError,
+            D: DisplayCollector + fmt::Display + fmt::Debug,
         {
-            deserializer: BinaryDeserializer<'de, R, E, Error>,
+            deserializer: BinaryDeserializer<'de, R, E, D>,
             len: usize,
         }
 
-        impl<'a, 'de, R, E, Error> SeqAccess<'de> for Access<'de, R, E, Error>
+        impl<'a, 'de, R, E, D> SeqAccess<'de> for Access<'de, R, E, D>
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
-            Error: BinaryDeserializerError,
+            D: DisplayCollector + fmt::Display + fmt::Debug,
         {
-            type Error = Error;
+            type Error = ErrorAdapter<Either<BinaryDeserializerError, R::Error>, D>;
 
             fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
             where
@@ -329,16 +358,15 @@ where
     where
         V: Visitor<'de>,
     {
-        use serde::de::MapAccess;
-        use serde::de::DeserializeSeed;
+        use serde::de::{MapAccess, DeserializeSeed};
 
-        impl<'de, R, E, Error> MapAccess<'de> for BinaryDeserializer<'de, R, E, Error>
+        impl<'de, R, E, D> MapAccess<'de> for BinaryDeserializer<'de, R, E, D>
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
-            Error: BinaryDeserializerError,
+            D: DisplayCollector + fmt::Display + fmt::Debug,
         {
-            type Error = Error;
+            type Error = ErrorAdapter<Either<BinaryDeserializerError, R::Error>, D>;
 
             fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
             where
@@ -385,19 +413,15 @@ where
     where
         V: Visitor<'de>,
     {
-        use serde::de::EnumAccess;
-        use serde::de::VariantAccess;
-        use serde::de::Deserialize;
-        use serde::de::DeserializeSeed;
-        use serde::de::IntoDeserializer;
+        use serde::de::{EnumAccess, VariantAccess, DeserializeSeed, Deserialize, IntoDeserializer};
 
-        impl<'de, R, E, Error> EnumAccess<'de> for BinaryDeserializer<'de, R, E, Error>
+        impl<'de, R, E, D> EnumAccess<'de> for BinaryDeserializer<'de, R, E, D>
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
-            Error: BinaryDeserializerError,
+            D: DisplayCollector + fmt::Display + fmt::Debug,
         {
-            type Error = Error;
+            type Error = ErrorAdapter<Either<BinaryDeserializerError, R::Error>, D>;
             type Variant = Self;
 
             fn variant_seed<V>(mut self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
@@ -411,13 +435,13 @@ where
             }
         }
 
-        impl<'de, R, E, Error> VariantAccess<'de> for BinaryDeserializer<'de, R, E, Error>
+        impl<'de, R, E, D> VariantAccess<'de> for BinaryDeserializer<'de, R, E, D>
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
-            Error: BinaryDeserializerError,
+            D: DisplayCollector + fmt::Display + fmt::Debug,
         {
-            type Error = Error;
+            type Error = ErrorAdapter<Either<BinaryDeserializerError, R::Error>, D>;
 
             fn unit_variant(self) -> Result<(), Self::Error> {
                 Ok(())
@@ -460,7 +484,7 @@ where
     {
         let _ = self;
         let _ = visitor;
-        Err(Error::not_supported())
+        Err(ErrorAdapter::Inner(Either::Left(BinaryDeserializerError::NotSupported)))
     }
 
     fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -469,7 +493,7 @@ where
     {
         let _ = self;
         let _ = visitor;
-        Err(Error::not_supported())
+        Err(ErrorAdapter::Inner(Either::Left(BinaryDeserializerError::NotSupported)))
     }
 
     fn is_human_readable(&self) -> bool {
