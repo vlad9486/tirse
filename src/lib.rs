@@ -21,10 +21,11 @@ pub use self::de::BinaryDeserializer;
 pub use self::de::BinaryDeserializerError;
 
 #[cfg(feature = "std")]
-pub use self::io::with_std::*;
+pub use self::io::with_std::WriteWrapper;
 
 pub use self::io::Write;
 pub use self::io::Read;
+pub use self::io::IterReadError;
 
 pub use self::io::BinarySerializerDelegate;
 pub use self::io::DefaultBinarySerializerDelegate;
