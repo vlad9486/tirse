@@ -20,8 +20,6 @@ pub use self::ser::BinarySerializerError;
 pub use self::de::BinaryDeserializer;
 pub use self::de::BinaryDeserializerError;
 
-pub use self::err::DisplayCollector;
-
 #[cfg(feature = "std")]
 pub use self::io::with_std::*;
 
@@ -30,6 +28,9 @@ pub use self::io::Read;
 
 pub use self::io::BinarySerializerDelegate;
 pub use self::io::DefaultBinarySerializerDelegate;
+
+pub use self::err::DisplayCollector;
+pub use self::err::ErrorAdapter;
 
 use byteorder::NativeEndian;
 

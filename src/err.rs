@@ -16,20 +16,6 @@ where
     Other(D),
 }
 
-impl<E, D> DisplayCollector for ErrorAdapter<E, D>
-where
-    D: DisplayCollector,
-{
-    fn display<T>(msg: &T) -> Self
-    where
-        T: ?Sized + fmt::Display,
-    {
-        use self::ErrorAdapter::*;
-
-        Other(D::display(msg))
-    }
-}
-
 impl<E, D> ser::Error for ErrorAdapter<E, D>
 where
     D: DisplayCollector + fmt::Display + fmt::Debug,
