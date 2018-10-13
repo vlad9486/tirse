@@ -61,7 +61,7 @@ where
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "use_std")]
 mod std {
     use std::{fmt, error, string};
     use super::{ErrorAdapter, DisplayCollector};

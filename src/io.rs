@@ -144,8 +144,11 @@ impl BinarySerializerDelegate for DefaultBinarySerializerDelegate {
     }
 }
 
-#[cfg(feature = "std")]
-pub mod with_std {
+#[cfg(feature = "use_std")]
+pub use self::with_std::WriteWrapper;
+
+#[cfg(feature = "use_std")]
+mod with_std {
     use super::Write;
     use std::io;
 

@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(feature = "use_std"), no_std)]
 
 mod ser;
 mod de;
@@ -20,8 +20,8 @@ pub use self::ser::BinarySerializerError;
 pub use self::de::BinaryDeserializer;
 pub use self::de::BinaryDeserializerError;
 
-#[cfg(feature = "std")]
-pub use self::io::with_std::WriteWrapper;
+#[cfg(feature = "use_std")]
+pub use self::io::WriteWrapper;
 
 pub use self::io::Write;
 pub use self::io::Read;

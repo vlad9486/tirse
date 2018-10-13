@@ -1,4 +1,4 @@
-#![cfg(not(feature = "std"))]
+#![cfg(not(feature = "use_std"))]
 
 use serde::Serialize;
 use serde_derive::Serialize;

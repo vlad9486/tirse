@@ -343,7 +343,7 @@ where
             })
     }
 
-    #[cfg(not(feature = "std"))]
+    #[cfg(not(feature = "use_std"))]
     fn collect_str<T>(self, value: &T) -> Result<Self::Ok, Self::Error>
     where
         T: ?Sized + fmt::Display,

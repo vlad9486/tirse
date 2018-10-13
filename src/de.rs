@@ -6,9 +6,9 @@ use super::{io::Read, err::{ErrorAdapter, DisplayCollector}};
 
 #[derive(Debug)]
 pub enum BinaryDeserializerError {
-    #[cfg(not(feature = "std"))]
+    #[cfg(not(feature = "use_std"))]
     RequiredAlloc,
-    #[cfg(feature = "std")]
+    #[cfg(feature = "use_std")]
     FromUtf8Error(std::string::FromUtf8Error),
     WrongChar(u32),
     Utf8Error(str::Utf8Error),
@@ -21,9 +21,9 @@ impl fmt::Display for BinaryDeserializerError {
         use self::BinaryDeserializerError::*;
 
         match self {
-            #[cfg(not(feature = "std"))]
+            #[cfg(not(feature = "use_std"))]
             &RequiredAlloc => write!(f, "required alloc"),
-            #[cfg(feature = "std")]
+            #[cfg(feature = "use_std")]
             &FromUtf8Error(ref e) => write!(f, "{}", e),
             &WrongChar(code) => write!(f, "wrong char code: {}", code),
             &Utf8Error(ref e) => write!(f, "{}", e),
@@ -144,7 +144,7 @@ where
             })
     }
 
-    #[cfg(not(feature = "std"))]
+    #[cfg(not(feature = "use_std"))]
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
@@ -153,7 +153,7 @@ where
         Err(ErrorAdapter::Inner(Either::Left(BinaryDeserializerError::RequiredAlloc)))
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(feature = "use_std")]
     fn deserialize_string<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
@@ -195,7 +195,7 @@ where
             })
     }
 
-    #[cfg(not(feature = "std"))]
+    #[cfg(not(feature = "use_std"))]
     fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
@@ -204,7 +204,7 @@ where
         Err(ErrorAdapter::Inner(Either::Left(BinaryDeserializerError::RequiredAlloc)))
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(feature = "use_std")]
     fn deserialize_byte_buf<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
