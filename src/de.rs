@@ -286,7 +286,10 @@ where
             where
                 T: DeserializeSeed<'de>,
             {
-                seed.deserialize(self.split()).map(Some)
+                let d = self.split();
+                d.read.is()
+                    .map(|()| seed.deserialize(d).map(Some))
+                    .unwrap_or(Ok(None))
             }
         }
 

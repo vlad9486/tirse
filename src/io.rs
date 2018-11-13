@@ -18,6 +18,8 @@ pub trait Read<'de> {
     fn read_char<E>(&mut self) -> Result<Result<char, u32>, Self::Error>
     where
         E: ByteOrder;
+
+    fn is(&self) -> Option<()>;
 }
 
 impl<'a, 'de, R> Read<'de> for &'a mut R
@@ -49,6 +51,10 @@ where
         E: ByteOrder,
     {
         (&mut **self).read_char::<E>()
+    }
+
+    fn is(&self) -> Option<()> {
+        (&**self).is()
     }
 }
 
@@ -105,6 +111,14 @@ impl<'de> Read<'de> for slice::Iter<'de, u8> {
         self.read(mem::size_of::<u32>())
             .map(E::read_u32)
             .map(|code| char::from_u32(code).ok_or(code))
+    }
+
+    fn is(&self) -> Option<()> {
+        if self.as_slice().len() != 0 {
+            Some(())
+        } else {
+            None
+        }
     }
 }
 
