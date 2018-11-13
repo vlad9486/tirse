@@ -201,14 +201,17 @@ where
     }
 
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-        self.serialize_bool(false)
+        H::transform_variant(0)
+            .serialize(self)
     }
 
     fn serialize_some<T>(self, value: &T) -> Result<Self::Ok, Self::Error>
     where
         T: ?Sized + Serialize,
     {
-        self.serialize_bool(true).and_then(|s| value.serialize(s))
+        H::transform_variant(1)
+            .serialize(self)
+            .and_then(|s| value.serialize(s))
     }
 
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
