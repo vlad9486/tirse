@@ -29,6 +29,8 @@ pub use self::io::IterReadError;
 
 pub use self::io::BinarySerializerDelegate;
 pub use self::io::DefaultBinarySerializerDelegate;
+pub use self::io::BinaryDeserializerDelegate;
+pub use self::io::DefaultBinaryDeserializerDelegate;
 
 pub use self::err::DisplayCollector;
 pub use self::err::ErrorAdapter;
@@ -38,4 +40,5 @@ use byteorder::NativeEndian;
 pub type DefaultBinarySerializer<W, D> =
     BinarySerializer<W, NativeEndian, DefaultBinarySerializerDelegate, D>;
 
-pub type DefaultBinaryDeserializer<'de, R, D> = BinaryDeserializer<'de, R, NativeEndian, D>;
+pub type DefaultBinaryDeserializer<'de, R, D> =
+    BinaryDeserializer<'de, R, NativeEndian, DefaultBinaryDeserializerDelegate, D>;

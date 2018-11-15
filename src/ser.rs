@@ -184,7 +184,7 @@ where
     }
 
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
-        H::transform_char(v).serialize(self)
+        H::encode_char(v).serialize(self)
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
@@ -201,7 +201,7 @@ where
     }
 
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-        H::transform_variant(0)
+        H::encode_variant(0)
             .serialize(self)
     }
 
@@ -209,7 +209,7 @@ where
     where
         T: ?Sized + Serialize,
     {
-        H::transform_variant(1)
+        H::encode_variant(1)
             .serialize(self)
             .and_then(|s| value.serialize(s))
     }
@@ -231,7 +231,7 @@ where
     ) -> Result<Self::Ok, Self::Error> {
         let _ = name;
         let _ = variant;
-        H::transform_variant(variant_index).serialize(self)
+        H::encode_variant(variant_index).serialize(self)
     }
 
     fn serialize_newtype_struct<T: ?Sized>(
@@ -258,14 +258,14 @@ where
     {
         let _ = name;
         let _ = variant;
-        H::transform_variant(variant_index)
+        H::encode_variant(variant_index)
             .serialize(self)
             .and_then(|s| value.serialize(s))
     }
 
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
         let maybe_self = match len {
-            Some(len) => H::transform_length(len).serialize(self),
+            Some(len) => H::encode_length(len).serialize(self),
             None => Ok(self),
         };
         maybe_self.and_then(|x| Ok(BinarySerializeSeq { raw: Ok(x) }))
@@ -298,7 +298,7 @@ where
         let _ = name;
         let _ = variant;
         let _ = len;
-        H::transform_variant(variant_index)
+        H::encode_variant(variant_index)
             .serialize(self)
             .and_then(|x| {
                 let sequence = BinarySerializeSeq { raw: Ok(x) };
@@ -308,7 +308,7 @@ where
 
     fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
         let maybe_self = match len {
-            Some(len) => H::transform_length(len).serialize(self),
+            Some(len) => H::encode_length(len).serialize(self),
             None => Ok(self),
         };
         maybe_self.and_then(|x| {
@@ -338,7 +338,7 @@ where
         let _ = name;
         let _ = variant;
         let _ = len;
-        H::transform_variant(variant_index)
+        H::encode_variant(variant_index)
             .serialize(self)
             .and_then(|x| {
                 let sequence = BinarySerializeSeq { raw: Ok(x) };

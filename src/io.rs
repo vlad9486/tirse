@@ -7,18 +7,6 @@ pub trait Read<'de> {
 
     fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error>;
 
-    fn read_variant<E>(&mut self) -> Result<u32, Self::Error>
-    where
-        E: ByteOrder;
-
-    fn read_length<E>(&mut self) -> Result<usize, Self::Error>
-    where
-        E: ByteOrder;
-
-    fn read_char<E>(&mut self) -> Result<Result<char, u32>, Self::Error>
-    where
-        E: ByteOrder;
-
     fn is(&self) -> Option<()>;
 }
 
@@ -30,27 +18,6 @@ where
 
     fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error> {
         (&mut **self).read(length)
-    }
-
-    fn read_variant<E>(&mut self) -> Result<u32, Self::Error>
-    where
-        E: ByteOrder,
-    {
-        (&mut **self).read_variant::<E>()
-    }
-
-    fn read_length<E>(&mut self) -> Result<usize, Self::Error>
-    where
-        E: ByteOrder,
-    {
-        (&mut **self).read_length::<E>()
-    }
-
-    fn read_char<E>(&mut self) -> Result<Result<char, u32>, Self::Error>
-    where
-        E: ByteOrder,
-    {
-        (&mut **self).read_char::<E>()
     }
 
     fn is(&self) -> Option<()> {
@@ -83,42 +50,55 @@ impl<'de> Read<'de> for slice::Iter<'de, u8> {
         }
     }
 
-    fn read_variant<E>(&mut self) -> Result<u32, Self::Error>
-    where
-        E: ByteOrder,
-    {
-        use core::mem;
-        self.read(mem::size_of::<u32>()).map(E::read_u32)
-    }
-
-    fn read_length<E>(&mut self) -> Result<usize, Self::Error>
-    where
-        E: ByteOrder,
-    {
-        use core::mem;
-        match mem::size_of::<usize>() {
-            l @ 8 => self.read(l).map(E::read_u64).map(|a| a as _),
-            l @ 4 => self.read(l).map(E::read_u32).map(|a| a as _),
-            l @ _ => self.read(l).map(E::read_u16).map(|a| a as _),
-        }
-    }
-
-    fn read_char<E>(&mut self) -> Result<Result<char, u32>, Self::Error>
-    where
-        E: ByteOrder,
-    {
-        use core::{mem, char};
-        self.read(mem::size_of::<u32>())
-            .map(E::read_u32)
-            .map(|code| char::from_u32(code).ok_or(code))
-    }
-
     fn is(&self) -> Option<()> {
         if self.as_slice().len() != 0 {
             Some(())
         } else {
             None
         }
+    }
+}
+
+pub trait BinaryDeserializerDelegate {
+    fn variant_size() -> usize;
+    fn length_size() -> usize;
+    fn char_size() -> usize;
+
+    fn decode_variant<E>(bytes: &[u8]) -> u32 where E: ByteOrder;
+    fn decode_length<E>(bytes: &[u8]) -> usize where E: ByteOrder;
+    fn decode_char<E>(bytes: &[u8]) -> Result<char, u32> where E: ByteOrder;
+}
+
+pub struct DefaultBinaryDeserializerDelegate;
+
+impl BinaryDeserializerDelegate for DefaultBinaryDeserializerDelegate {
+    fn variant_size() -> usize {
+        core::mem::size_of::<u32>()
+    }
+
+    fn length_size() -> usize {
+        core::mem::size_of::<usize>()
+    }
+
+    fn char_size() -> usize {
+        core::mem::size_of::<u32>()
+    }
+
+    fn decode_variant<E>(bytes: &[u8]) -> u32 where E: ByteOrder {
+        E::read_u32(bytes)
+    }
+
+    fn decode_length<E>(bytes: &[u8]) -> usize where E: ByteOrder {
+        match Self::length_size() {
+            8 => E::read_u64(bytes) as usize,
+            4 => E::read_u32(bytes) as usize,
+            _ => E::read_u16(bytes) as usize,
+        }
+    }
+
+    fn decode_char<E>(bytes: &[u8]) -> Result<char, u32> where E: ByteOrder {
+        let code = E::read_u32(bytes);
+        core::char::from_u32(code).ok_or(code)
     }
 }
 
@@ -133,9 +113,9 @@ pub trait BinarySerializerDelegate {
     type Length: ser::Serialize;
     type Char: ser::Serialize;
 
-    fn transform_variant(v: u32) -> Self::Variant;
-    fn transform_length(v: usize) -> Self::Length;
-    fn transform_char(v: char) -> Self::Char;
+    fn encode_variant(v: u32) -> Self::Variant;
+    fn encode_length(v: usize) -> Self::Length;
+    fn encode_char(v: char) -> Self::Char;
 }
 
 pub struct DefaultBinarySerializerDelegate;
@@ -145,15 +125,15 @@ impl BinarySerializerDelegate for DefaultBinarySerializerDelegate {
     type Length = usize;
     type Char = u32;
 
-    fn transform_variant(v: u32) -> Self::Variant {
+    fn encode_variant(v: u32) -> Self::Variant {
         v
     }
 
-    fn transform_length(v: usize) -> Self::Length {
+    fn encode_length(v: usize) -> Self::Length {
         v
     }
 
-    fn transform_char(v: char) -> Self::Char {
+    fn encode_char(v: char) -> Self::Char {
         v as _
     }
 }

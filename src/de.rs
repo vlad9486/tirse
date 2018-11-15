@@ -2,7 +2,7 @@ use core::{str, fmt, marker};
 use serde::{de::Visitor, Deserializer};
 use byteorder::ByteOrder;
 use either::Either;
-use super::{io::Read, err::{ErrorAdapter, DisplayCollector}};
+use super::{io::{Read, BinaryDeserializerDelegate}, err::{ErrorAdapter, DisplayCollector}};
 
 #[derive(Debug)]
 pub enum BinaryDeserializerError {
@@ -33,20 +33,22 @@ impl fmt::Display for BinaryDeserializerError {
     }
 }
 
-pub struct BinaryDeserializer<'de, R, E, D>
+pub struct BinaryDeserializer<'de, R, E, H, D>
 where
     R: Read<'de>,
     E: ByteOrder + 'de,
+    H: BinaryDeserializerDelegate,
     D: DisplayCollector,
 {
     read: R,
-    phantom_data: marker::PhantomData<&'de mut (E, D)>,
+    phantom_data: marker::PhantomData<&'de mut (E, H, D)>,
 }
 
-impl<'de, R, E, D> BinaryDeserializer<'de, R, E, D>
+impl<'de, R, E, H, D> BinaryDeserializer<'de, R, E, H, D>
 where
     R: Read<'de>,
     E: ByteOrder + 'de,
+    H: BinaryDeserializerDelegate,
     D: DisplayCollector,
 {
     pub fn new(read: R) -> Self {
@@ -56,7 +58,7 @@ where
         }
     }
 
-    pub fn split(&mut self) -> BinaryDeserializer<'de, &mut R, E, D> {
+    pub fn split(&mut self) -> BinaryDeserializer<'de, &mut R, E, H, D> {
         BinaryDeserializer::new(&mut self.read)
     }
 }
@@ -77,10 +79,11 @@ macro_rules! primitive {
     }
 }
 
-impl<'a, 'de, R, E, D> Deserializer<'de> for BinaryDeserializer<'de, R, E, D>
+impl<'a, 'de, R, E, H, D> Deserializer<'de> for BinaryDeserializer<'de, R, E, H, D>
 where
     R: Read<'de>,
     E: ByteOrder + 'de,
+    H: BinaryDeserializerDelegate,
     D: DisplayCollector + fmt::Display + fmt::Debug,
 {
     type Error = ErrorAdapter<Either<BinaryDeserializerError, R::Error>, D>;
@@ -113,7 +116,8 @@ where
         V: Visitor<'de>,
     {
         self.read
-            .read_char::<E>()
+            .read(H::char_size())
+            .map(H::decode_char::<E>)
             .map_err(Either::Right)
             .and_then(|v| v
                 .map_err(BinaryDeserializerError::WrongChar)
@@ -128,7 +132,8 @@ where
         V: Visitor<'de>,
     {
         self.read
-            .read_length::<E>()
+            .read(H::length_size())
+            .map(H::decode_length::<E>)
             .map_err(Either::Right)
             .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
@@ -159,7 +164,8 @@ where
         V: Visitor<'de>,
     {
         self.read
-            .read_length::<E>()
+            .read(H::length_size())
+            .map(H::decode_length::<E>)
             .map_err(Either::Right)
             .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
@@ -183,7 +189,8 @@ where
         V: Visitor<'de>,
     {
         self.read
-            .read_length::<E>()
+            .read(H::length_size())
+            .map(H::decode_length::<E>)
             .map_err(Either::Right)
             .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
@@ -210,7 +217,8 @@ where
         V: Visitor<'de>,
     {
         self.read
-            .read_length::<E>()
+            .read(H::length_size())
+            .map(H::decode_length::<E>)
             .map_err(Either::Right)
             .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
@@ -227,7 +235,8 @@ where
         V: Visitor<'de>,
     {
         self.read
-            .read_variant::<E>()
+            .read(H::variant_size())
+            .map(H::decode_variant::<E>)
             .map_err(Either::Right)
             .map_err(ErrorAdapter::Inner)
             .and_then(|variant| match variant {
@@ -274,10 +283,11 @@ where
     {
         use serde::de::{SeqAccess, DeserializeSeed};
 
-        impl<'de, R, E, D> SeqAccess<'de> for BinaryDeserializer<'de, R, E, D>
+        impl<'de, R, E, H, D> SeqAccess<'de> for BinaryDeserializer<'de, R, E, H, D>
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
+            H: BinaryDeserializerDelegate,
             D: DisplayCollector + fmt::Display + fmt::Debug,
         {
             type Error = ErrorAdapter<Either<BinaryDeserializerError, R::Error>, D>;
@@ -302,20 +312,22 @@ where
     {
         use serde::de::{SeqAccess, DeserializeSeed};
 
-        struct Access<'de, R, E, D>
+        struct Access<'de, R, E, H, D>
         where
             R: Read<'de>,
             E: ByteOrder,
+            H: BinaryDeserializerDelegate,
             D: DisplayCollector + fmt::Display + fmt::Debug,
         {
-            deserializer: BinaryDeserializer<'de, R, E, D>,
+            deserializer: BinaryDeserializer<'de, R, E, H, D>,
             len: usize,
         }
 
-        impl<'a, 'de, R, E, D> SeqAccess<'de> for Access<'de, R, E, D>
+        impl<'a, 'de, R, E, H, D> SeqAccess<'de> for Access<'de, R, E, H, D>
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
+            H: BinaryDeserializerDelegate,
             D: DisplayCollector + fmt::Display + fmt::Debug,
         {
             type Error = ErrorAdapter<Either<BinaryDeserializerError, R::Error>, D>;
@@ -363,10 +375,11 @@ where
     {
         use serde::de::{MapAccess, DeserializeSeed};
 
-        impl<'de, R, E, D> MapAccess<'de> for BinaryDeserializer<'de, R, E, D>
+        impl<'de, R, E, H, D> MapAccess<'de> for BinaryDeserializer<'de, R, E, H, D>
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
+            H: BinaryDeserializerDelegate,
             D: DisplayCollector + fmt::Display + fmt::Debug,
         {
             type Error = ErrorAdapter<Either<BinaryDeserializerError, R::Error>, D>;
@@ -418,10 +431,11 @@ where
     {
         use serde::de::{EnumAccess, VariantAccess, DeserializeSeed, Deserialize, IntoDeserializer};
 
-        impl<'de, R, E, D> EnumAccess<'de> for BinaryDeserializer<'de, R, E, D>
+        impl<'de, R, E, H, D> EnumAccess<'de> for BinaryDeserializer<'de, R, E, H, D>
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
+            H: BinaryDeserializerDelegate,
             D: DisplayCollector + fmt::Display + fmt::Debug,
         {
             type Error = ErrorAdapter<Either<BinaryDeserializerError, R::Error>, D>;
@@ -438,10 +452,11 @@ where
             }
         }
 
-        impl<'de, R, E, D> VariantAccess<'de> for BinaryDeserializer<'de, R, E, D>
+        impl<'de, R, E, H, D> VariantAccess<'de> for BinaryDeserializer<'de, R, E, H, D>
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
+            H: BinaryDeserializerDelegate,
             D: DisplayCollector + fmt::Display + fmt::Debug,
         {
             type Error = ErrorAdapter<Either<BinaryDeserializerError, R::Error>, D>;
