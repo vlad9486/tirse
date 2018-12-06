@@ -26,23 +26,23 @@ where
 }
 
 #[derive(Debug)]
-pub struct IterReadError {
+pub struct IterIoError {
     missing: ops::Range<usize>,
 }
 
-impl fmt::Display for IterReadError {
+impl fmt::Display for IterIoError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "failed to read {}..{}", self.missing.start, self.missing.end)
     }
 }
 
 impl<'de> Read<'de> for slice::Iter<'de, u8> {
-    type Error = IterReadError;
+    type Error = IterIoError;
 
     fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error> {
         let limit = self.as_slice().len();
         if limit < length {
-            Err(IterReadError { missing: limit..length })
+            Err(IterIoError { missing: limit..length })
         } else {
             let s = &self.as_slice()[0..length];
             self.nth(length - 1);
@@ -106,6 +106,27 @@ pub trait Write {
     type Error: fmt::Display + fmt::Debug;
 
     fn write(&mut self, bytes: &[u8]) -> Result<(), Self::Error>;
+}
+
+impl<'de> Write for slice::IterMut<'de, u8> {
+    type Error = IterIoError;
+
+    fn write(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
+        use core::mem;
+
+        let limit = self.size_hint().0;
+        let length = bytes.len();
+        if limit < length {
+            Err(IterIoError { missing: limit..length })
+        } else {
+            let mut temp = (&mut []).iter_mut();
+            mem::swap(&mut temp, self);
+            let slice = temp.into_slice();
+            slice.copy_from_slice(bytes);
+            *self = slice[length..].iter_mut();
+            Ok(())
+        }
+    }
 }
 
 pub trait BinarySerializerDelegate {

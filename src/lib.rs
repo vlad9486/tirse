@@ -25,7 +25,7 @@ pub use self::io::WriteWrapper;
 
 pub use self::io::Write;
 pub use self::io::Read;
-pub use self::io::IterReadError;
+pub use self::io::IterIoError;
 
 pub use self::io::BinarySerializerDelegate;
 pub use self::io::DefaultBinarySerializerDelegate;
