@@ -298,7 +298,7 @@ where
             {
                 let d = self.split();
                 d.read.is()
-                    .map(|()| seed.deserialize(d).map(Some))
+                    .map(|()| seed.deserialize(d).map(Some).or_else(|_| Ok(None)))
                     .unwrap_or(Ok(None))
             }
         }
