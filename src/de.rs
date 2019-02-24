@@ -281,78 +281,14 @@ where
     where
         V: Visitor<'de>,
     {
-        use serde::de::{SeqAccess, DeserializeSeed};
-
-        impl<'de, R, E, H, D> SeqAccess<'de> for BinaryDeserializer<'de, R, E, H, D>
-        where
-            R: Read<'de>,
-            E: ByteOrder + 'de,
-            H: BinaryDeserializerDelegate,
-            D: DisplayCollector + fmt::Display + fmt::Debug,
-        {
-            type Error = ErrorAdapter<Either<BinaryDeserializerError, R::Error>, D>;
-
-            fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
-            where
-                T: DeserializeSeed<'de>,
-            {
-                let d = self.split();
-                d.read.is()
-                    .map(|()| seed.deserialize(d).map(Some).or_else(|_| Ok(None)))
-                    .unwrap_or(Ok(None))
-            }
-        }
-
-        visitor.visit_seq(self)
+        visitor.visit_seq(SequenceAccess::new(self))
     }
 
     fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        use serde::de::{SeqAccess, DeserializeSeed};
-
-        struct Access<'de, R, E, H, D>
-        where
-            R: Read<'de>,
-            E: ByteOrder,
-            H: BinaryDeserializerDelegate,
-            D: DisplayCollector + fmt::Display + fmt::Debug,
-        {
-            deserializer: BinaryDeserializer<'de, R, E, H, D>,
-            len: usize,
-        }
-
-        impl<'a, 'de, R, E, H, D> SeqAccess<'de> for Access<'de, R, E, H, D>
-        where
-            R: Read<'de>,
-            E: ByteOrder + 'de,
-            H: BinaryDeserializerDelegate,
-            D: DisplayCollector + fmt::Display + fmt::Debug,
-        {
-            type Error = ErrorAdapter<Either<BinaryDeserializerError, R::Error>, D>;
-
-            fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
-            where
-                T: DeserializeSeed<'de>,
-            {
-                if self.len > 0 {
-                    self.len -= 1;
-                    self.deserializer.next_element_seed(seed)
-                } else {
-                    Ok(None)
-                }
-            }
-
-            fn size_hint(&self) -> Option<usize> {
-                Some(self.len)
-            }
-        }
-
-        visitor.visit_seq(Access {
-            deserializer: self,
-            len: len,
-        })
+        visitor.visit_seq(SequenceAccess::new_with_length(self, len))
     }
 
     fn deserialize_tuple_struct<V>(
@@ -375,7 +311,7 @@ where
     {
         use serde::de::{MapAccess, DeserializeSeed};
 
-        impl<'de, R, E, H, D> MapAccess<'de> for BinaryDeserializer<'de, R, E, H, D>
+        impl<'de, R, E, H, D> MapAccess<'de> for SequenceAccess<'de, R, E, H, D>
         where
             R: Read<'de>,
             E: ByteOrder + 'de,
@@ -403,7 +339,7 @@ where
             }
         }
 
-        visitor.visit_map(self)
+        visitor.visit_map(SequenceAccess::new(self))
     }
 
     fn deserialize_struct<V>(
@@ -516,5 +452,78 @@ where
 
     fn is_human_readable(&self) -> bool {
         false
+    }
+}
+
+use serde::de::{SeqAccess, DeserializeSeed};
+
+struct SequenceAccess<'de, R, E, H, D>
+where
+    R: Read<'de>,
+    E: ByteOrder,
+    H: BinaryDeserializerDelegate,
+    D: DisplayCollector + fmt::Display + fmt::Debug,
+{
+    deserializer: BinaryDeserializer<'de, R, E, H, D>,
+    len: Option<usize>,
+}
+
+impl<'de, R, E, H, D> SequenceAccess<'de, R, E, H, D>
+where
+    R: Read<'de>,
+    E: ByteOrder + 'de,
+    H: BinaryDeserializerDelegate,
+    D: DisplayCollector + fmt::Display + fmt::Debug,
+{
+    fn new(d: BinaryDeserializer<'de, R, E, H, D>) -> Self {
+        SequenceAccess {
+            deserializer: d,
+            len: None,
+        }
+    }
+
+    fn new_with_length(d: BinaryDeserializer<'de, R, E, H, D>, length: usize) -> Self {
+        SequenceAccess {
+            deserializer: d,
+            len: Some(length),
+        }
+    }
+}
+
+impl<'de, R, E, H, D> SeqAccess<'de> for SequenceAccess<'de, R, E, H, D>
+where
+    R: Read<'de>,
+    E: ByteOrder + 'de,
+    H: BinaryDeserializerDelegate,
+    D: DisplayCollector + fmt::Display + fmt::Debug,
+{
+    type Error = ErrorAdapter<Either<BinaryDeserializerError, R::Error>, D>;
+
+    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+    where
+        T: DeserializeSeed<'de>,
+    {
+        let d = self.deserializer.split();
+
+        let length = match self.len {
+            Some(length) => length,
+            None => {
+                d.read
+                    .read(H::sequence_length_size())
+                    .map(H::decode_sequence_length::<E>)
+                    .map_err(Either::Right)
+                    .map_err(ErrorAdapter::Inner)?
+                    .unwrap_or(usize::max_value())
+            }
+        };
+
+        if length > 0 {
+            self.len = Some(length - 1);
+            d.read.is()
+                .map(|()| seed.deserialize(d).map(Some))
+                .unwrap_or(Ok(None))
+        } else {
+            Ok(None)
+        }
     }
 }

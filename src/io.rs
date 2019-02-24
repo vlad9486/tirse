@@ -62,10 +62,12 @@ impl<'de> Read<'de> for slice::Iter<'de, u8> {
 pub trait BinaryDeserializerDelegate {
     fn variant_size() -> usize;
     fn length_size() -> usize;
+    fn sequence_length_size() -> usize;
     fn char_size() -> usize;
 
     fn decode_variant<E>(bytes: &[u8]) -> u32 where E: ByteOrder;
     fn decode_length<E>(bytes: &[u8]) -> usize where E: ByteOrder;
+    fn decode_sequence_length<E>(bytes: &[u8]) -> Option<usize> where E: ByteOrder;
     fn decode_char<E>(bytes: &[u8]) -> Result<char, u32> where E: ByteOrder;
 }
 
@@ -78,6 +80,10 @@ impl BinaryDeserializerDelegate for DefaultBinaryDeserializerDelegate {
 
     fn length_size() -> usize {
         core::mem::size_of::<usize>()
+    }
+
+    fn sequence_length_size() -> usize {
+        0
     }
 
     fn char_size() -> usize {
@@ -94,6 +100,11 @@ impl BinaryDeserializerDelegate for DefaultBinaryDeserializerDelegate {
             4 => E::read_u32(bytes) as usize,
             _ => E::read_u16(bytes) as usize,
         }
+    }
+
+    fn decode_sequence_length<E>(bytes: &[u8]) -> Option<usize> where E: ByteOrder {
+        let _ = bytes;
+        None
     }
 
     fn decode_char<E>(bytes: &[u8]) -> Result<char, u32> where E: ByteOrder {
@@ -132,10 +143,12 @@ impl<'de> Write for slice::IterMut<'de, u8> {
 pub trait BinarySerializerDelegate {
     type Variant: ser::Serialize;
     type Length: ser::Serialize;
+    type SequenceLength: ser::Serialize;
     type Char: ser::Serialize;
 
     fn encode_variant(v: u32) -> Self::Variant;
     fn encode_length(v: usize) -> Self::Length;
+    fn encode_sequence_length(v: usize) -> Self::SequenceLength;
     fn encode_char(v: char) -> Self::Char;
 }
 
@@ -144,6 +157,7 @@ pub struct DefaultBinarySerializerDelegate;
 impl BinarySerializerDelegate for DefaultBinarySerializerDelegate {
     type Variant = u32;
     type Length = usize;
+    type SequenceLength = ();
     type Char = u32;
 
     fn encode_variant(v: u32) -> Self::Variant {
@@ -152,6 +166,11 @@ impl BinarySerializerDelegate for DefaultBinarySerializerDelegate {
 
     fn encode_length(v: usize) -> Self::Length {
         v
+    }
+
+    fn encode_sequence_length(v: usize) -> Self::SequenceLength {
+        let _ = v;
+        ()
     }
 
     fn encode_char(v: char) -> Self::Char {

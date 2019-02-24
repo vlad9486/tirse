@@ -265,7 +265,7 @@ where
 
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
         let maybe_self = match len {
-            Some(len) => H::encode_length(len).serialize(self),
+            Some(len) => H::encode_sequence_length(len).serialize(self),
             None => Ok(self),
         };
         maybe_self.and_then(|x| Ok(BinarySerializeSeq { raw: Ok(x) }))

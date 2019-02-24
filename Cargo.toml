@@ -1,6 +1,6 @@
 [package]
 name = "tirse"
-version = "0.4.1"
+version = "0.5.0"
 authors = ["Vladislav Melnik <vlad9486@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/vlad9486/tirse"
@@ -15,6 +15,6 @@ use_std = ["byteorder/std", "serde/std", "either/use_std"]
 serde_derive = "1.0"
 
 [dependencies]
-byteorder = { version = "1.2", default-features = false, optional = true }
+byteorder = { version = "1.3", default-features = false, optional = true }
 serde = { version = "1.0", default-features = false, optional = true }
 either = { version = "1.5", default-features = false, optional = true }
