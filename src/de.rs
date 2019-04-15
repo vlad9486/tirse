@@ -41,6 +41,7 @@ where
     D: DisplayCollector,
 {
     read: R,
+    position: usize,
     phantom_data: marker::PhantomData<&'de mut (E, H, D)>,
 }
 
@@ -54,12 +55,23 @@ where
     pub fn new(read: R) -> Self {
         BinaryDeserializer {
             read: read,
+            position: 0,
             phantom_data: marker::PhantomData,
         }
     }
 
+    fn set_position(self, v: usize) -> Self {
+        let mut s = self;
+        s.position = v;
+        s
+    }
+
     pub fn split(&mut self) -> BinaryDeserializer<'de, &mut R, E, H, D> {
-        BinaryDeserializer::new(&mut self.read)
+        BinaryDeserializer::new(&mut self.read).set_position(self.position)
+    }
+
+    pub fn position(&self) -> usize {
+        self.position
     }
 }
 
@@ -71,6 +83,7 @@ macro_rules! primitive {
         {
             use core::mem;
 
+            self.position += mem::size_of::<$ty>();
             self.read.read(mem::size_of::<$ty>())
                 .map_err(Either::Right)
                 .map_err(ErrorAdapter::Inner)
@@ -115,6 +128,7 @@ where
     where
         V: Visitor<'de>,
     {
+        self.position += H::char_size();
         self.read
             .read(H::char_size())
             .map(H::decode_char::<E>)
@@ -131,12 +145,14 @@ where
     where
         V: Visitor<'de>,
     {
+        self.position += H::length_size();
         self.read
             .read(H::length_size())
             .map(H::decode_length::<E>)
             .map_err(Either::Right)
             .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
+                self.position += length;
                 self.read
                     .read(length)
                     .map_err(Either::Right)
@@ -163,12 +179,14 @@ where
     where
         V: Visitor<'de>,
     {
+        self.position += H::length_size();
         self.read
             .read(H::length_size())
             .map(H::decode_length::<E>)
             .map_err(Either::Right)
             .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
+                self.position += length;
                 self.read
                     .read(length)
                     .map_err(Either::Right)
@@ -188,12 +206,14 @@ where
     where
         V: Visitor<'de>,
     {
+        self.position += H::length_size();
         self.read
             .read(H::length_size())
             .map(H::decode_length::<E>)
             .map_err(Either::Right)
             .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
+                self.position += length;
                 self.read
                     .read(length)
                     .map_err(Either::Right)
@@ -216,12 +236,14 @@ where
     where
         V: Visitor<'de>,
     {
+        self.position += H::length_size();
         self.read
             .read(H::length_size())
             .map(H::decode_length::<E>)
             .map_err(Either::Right)
             .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
+                self.position += H::length_size();
                 self.read
                     .read(length)
                     .map_err(Either::Right)
@@ -234,6 +256,7 @@ where
     where
         V: Visitor<'de>,
     {
+        self.position += H::variant_size();
         self.read
             .read(H::variant_size())
             .map(H::decode_variant::<E>)
@@ -503,11 +526,12 @@ where
     where
         T: DeserializeSeed<'de>,
     {
-        let d = self.deserializer.split();
+        let mut d = self.deserializer.split();
 
         let length = match self.len {
             Some(length) => length,
             None => {
+                d.position += H::sequence_length_size();
                 d.read
                     .read(H::sequence_length_size())
                     .map(H::decode_sequence_length::<E>)

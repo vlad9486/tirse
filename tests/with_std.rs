@@ -16,7 +16,6 @@ type DeserializeFromSlice<'a> = DefaultBinaryDeserializer<'a, Iter<'a, u8>, Stri
 
 #[test]
 fn test_str() {
-
     let v = vec![];
     let serializer = SerializerIntoVec::new(v);
     let v = "here".serialize(serializer).unwrap().consume().into_inner();
