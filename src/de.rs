@@ -309,7 +309,7 @@ where
     where
         V: Visitor<'de>,
     {
-        use serde::de::{MapAccess, DeserializeSeed};
+        use serde::de::MapAccess;
 
         impl<'de, R, E, H, D> MapAccess<'de> for SequenceAccess<'de, R, E, H, D>
         where
@@ -324,8 +324,6 @@ where
             where
                 K: DeserializeSeed<'de>,
             {
-                use serde::de::SeqAccess;
-
                 self.next_element_seed(seed)
             }
 
@@ -333,8 +331,6 @@ where
             where
                 V: DeserializeSeed<'de>,
             {
-                use serde::de::SeqAccess;
-
                 self.next_element_seed(seed).map(Option::unwrap)
             }
         }
@@ -365,7 +361,7 @@ where
     where
         V: Visitor<'de>,
     {
-        use serde::de::{EnumAccess, VariantAccess, DeserializeSeed, Deserialize, IntoDeserializer};
+        use serde::de::{EnumAccess, VariantAccess, Deserialize, IntoDeserializer};
 
         impl<'de, R, E, H, D> EnumAccess<'de> for BinaryDeserializer<'de, R, E, H, D>
         where

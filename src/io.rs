@@ -26,23 +26,23 @@ where
 }
 
 #[derive(Debug)]
-pub struct IterIoError {
+pub struct IoError {
     missing: ops::Range<usize>,
 }
 
-impl fmt::Display for IterIoError {
+impl fmt::Display for IoError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "failed to read {}..{}", self.missing.start, self.missing.end)
     }
 }
 
 impl<'de> Read<'de> for slice::Iter<'de, u8> {
-    type Error = IterIoError;
+    type Error = IoError;
 
     fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error> {
         let limit = self.as_slice().len();
         if limit < length {
-            Err(IterIoError { missing: limit..length })
+            Err(IoError { missing: limit..length })
         } else {
             let s = &self.as_slice()[0..length];
             self.nth(length - 1);
@@ -120,7 +120,7 @@ pub trait Write {
 }
 
 impl<'de> Write for slice::IterMut<'de, u8> {
-    type Error = IterIoError;
+    type Error = IoError;
 
     fn write(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
         use core::mem;
@@ -128,7 +128,7 @@ impl<'de> Write for slice::IterMut<'de, u8> {
         let limit = self.size_hint().0;
         let length = bytes.len();
         if limit < length {
-            Err(IterIoError { missing: limit..length })
+            Err(IoError { missing: limit..length })
         } else {
             let mut temp = (&mut []).iter_mut();
             mem::swap(&mut temp, self);

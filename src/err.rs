@@ -13,7 +13,7 @@ where
     D: DisplayCollector,
 {
     Inner(E),
-    Other(D),
+    Outer(D),
 }
 
 impl<E, D> ser::Error for ErrorAdapter<E, D>
@@ -27,7 +27,7 @@ where
     {
         use self::ErrorAdapter::*;
 
-        Other(D::display(&msg))
+        Outer(D::display(&msg))
     }
 }
 
@@ -42,7 +42,7 @@ where
     {
         use self::ErrorAdapter::*;
 
-        Other(D::display(&msg))
+        Outer(D::display(&msg))
     }
 }
 
@@ -56,7 +56,7 @@ where
 
         match self {
             &Inner(ref e) => write!(f, "{}", e),
-            &Other(ref d) => write!(f, "{}", d),
+            &Outer(ref d) => write!(f, "{}", d),
         }
     }
 }
