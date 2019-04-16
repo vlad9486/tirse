@@ -157,7 +157,7 @@ pub struct DefaultBinarySerializerDelegate;
 impl BinarySerializerDelegate for DefaultBinarySerializerDelegate {
     type Variant = u32;
     type Length = usize;
-    type SequenceLength = ();
+    type SequenceLength = usize;
     type Char = u32;
 
     fn encode_variant(v: u32) -> Self::Variant {
@@ -169,8 +169,7 @@ impl BinarySerializerDelegate for DefaultBinarySerializerDelegate {
     }
 
     fn encode_sequence_length(v: usize) -> Self::SequenceLength {
-        let _ = v;
-        ()
+        v
     }
 
     fn encode_char(v: char) -> Self::Char {
