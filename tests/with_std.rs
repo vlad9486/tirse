@@ -6,13 +6,36 @@ use serde_derive::Serialize;
 use serde_derive::Deserialize;
 
 use std::slice::Iter;
+use std::io::Cursor;
 
 use tirse::WriteWrapper;
+use tirse::ReadWrapper;
 use tirse::DefaultBinarySerializer;
 use tirse::DefaultBinaryDeserializer;
 
 type SerializerIntoVec = DefaultBinarySerializer<WriteWrapper<Vec<u8>>, String>;
 type DeserializeFromSlice<'a> = DefaultBinaryDeserializer<'a, Iter<'a, u8>, String>;
+type DeserializeFromVec<'a> = DefaultBinaryDeserializer<'a, ReadWrapper<Cursor<Vec<u8>>>, String>;
+
+#[test]
+fn test_read_wrapper() {
+    let v = vec![];
+    let serializer = SerializerIntoVec::new(v);
+    let v = "here".serialize(serializer).unwrap().consume().into_inner();
+
+    assert_eq!(
+        v,
+        vec![
+            4, 0, 0, 0, 0, 0, 0, 0, 'h' as _, 'e' as _, 'r' as _, 'e' as _,
+        ]
+    );
+
+    let r = <&str>::deserialize(DeserializeFromVec::new(ReadWrapper::from(Cursor::new(v.clone()))));
+    assert_eq!(r.is_err(), true);
+
+    let s: String = Deserialize::deserialize(DeserializeFromSlice::new(v.as_slice().iter())).unwrap();
+    assert_eq!(s, "here");
+}
 
 #[test]
 fn test_str() {

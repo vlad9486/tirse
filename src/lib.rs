@@ -21,7 +21,7 @@ pub use self::de::BinaryDeserializer;
 pub use self::de::BinaryDeserializerError;
 
 #[cfg(feature = "use_std")]
-pub use self::io::WriteWrapper;
+pub use self::io::{WriteWrapper, ReadWrapper};
 
 pub use self::io::Write;
 pub use self::io::Read;

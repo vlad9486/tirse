@@ -5,7 +5,11 @@ use serde::ser;
 pub trait Read<'de> {
     type Error: fmt::Display + fmt::Debug;
 
-    fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error>;
+    fn read(&mut self, length: usize) -> Option<Result<&'de [u8], Self::Error>>;
+
+    fn read_in_buffer<B>(&mut self, buffer: &mut B, length: usize) -> Result<(), Self::Error>
+    where
+        B: AsMut<[u8]>;
 
     fn is(&self) -> Option<()>;
 }
@@ -16,8 +20,15 @@ where
 {
     type Error = R::Error;
 
-    fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error> {
+    fn read(&mut self, length: usize) -> Option<Result<&'de [u8], Self::Error>> {
         (&mut **self).read(length)
+    }
+
+    fn read_in_buffer<B>(&mut self, buffer: &mut B, length: usize) -> Result<(), Self::Error>
+    where
+        B: AsMut<[u8]>,
+    {
+        (&mut **self).read_in_buffer(buffer, length)
     }
 
     fn is(&self) -> Option<()> {
@@ -39,15 +50,24 @@ impl fmt::Display for IoError {
 impl<'de> Read<'de> for slice::Iter<'de, u8> {
     type Error = IoError;
 
-    fn read(&mut self, length: usize) -> Result<&'de [u8], Self::Error> {
+    fn read(&mut self, length: usize) -> Option<Result<&'de [u8], Self::Error>> {
         let limit = self.as_slice().len();
         if limit < length {
-            Err(IoError { missing: limit..length })
+            Some(Err(IoError { missing: limit..length }))
         } else {
             let s = &self.as_slice()[0..length];
             self.nth(length - 1);
-            Ok(s)
+            Some(Ok(s))
         }
+    }
+
+    fn read_in_buffer<B>(&mut self, buffer: &mut B, length: usize) -> Result<(), Self::Error>
+    where
+        B: AsMut<[u8]>,
+    {
+        self.read(length)
+            .unwrap()
+            .map(|x| buffer.as_mut()[0..length].copy_from_slice(x))
     }
 
     fn is(&self) -> Option<()> {
@@ -60,6 +80,8 @@ impl<'de> Read<'de> for slice::Iter<'de, u8> {
 }
 
 pub trait BinaryDeserializerDelegate {
+    type SmallBuffer: AsRef<[u8]> + AsMut<[u8]> + Default;
+
     fn variant_size() -> usize;
     fn length_size() -> usize;
     fn sequence_length_size() -> usize;
@@ -74,6 +96,8 @@ pub trait BinaryDeserializerDelegate {
 pub struct DefaultBinaryDeserializerDelegate;
 
 impl BinaryDeserializerDelegate for DefaultBinaryDeserializerDelegate {
+    type SmallBuffer = [u8; 8];
+
     fn variant_size() -> usize {
         core::mem::size_of::<u32>()
     }
@@ -178,12 +202,60 @@ impl BinarySerializerDelegate for DefaultBinarySerializerDelegate {
 }
 
 #[cfg(feature = "use_std")]
-pub use self::with_std::WriteWrapper;
+pub use self::with_std::{WriteWrapper, ReadWrapper};
 
 #[cfg(feature = "use_std")]
 mod with_std {
-    use super::Write;
+    use super::{Write, Read};
     use std::io;
+
+    pub struct ReadWrapper<T>
+    where
+        T: io::Read,
+    {
+        raw: T,
+    }
+
+    impl<T> From<T> for ReadWrapper<T>
+    where
+        T: io::Read,
+    {
+        fn from(v: T) -> Self {
+            ReadWrapper { raw: v }
+        }
+    }
+
+    impl<T> ReadWrapper<T>
+    where
+        T: io::Read,
+    {
+        pub fn into_inner(self) -> T {
+            self.raw
+        }
+    }
+
+    impl<'de, T> Read<'de> for ReadWrapper<T>
+    where
+        T: io::Read,
+    {
+        type Error = io::Error;
+
+        fn read(&mut self, length: usize) -> Option<Result<&'de [u8], Self::Error>> {
+            let _ = length;
+            None
+        }
+
+        fn read_in_buffer<B>(&mut self, buffer: &mut B, length: usize) -> Result<(), Self::Error>
+        where
+            B: AsMut<[u8]>,
+        {
+            self.raw.read_exact(&mut buffer.as_mut()[0..length])
+        }
+
+        fn is(&self) -> Option<()> {
+            Some(())
+        }
+    }
 
     pub struct WriteWrapper<T>
     where

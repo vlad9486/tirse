@@ -14,6 +14,7 @@ pub enum BinaryDeserializerError {
     Utf8Error(str::Utf8Error),
     UnexpectedVariant(u32),
     NotSupported,
+    CannotReadBorrowed,
 }
 
 impl fmt::Display for BinaryDeserializerError {
@@ -29,6 +30,7 @@ impl fmt::Display for BinaryDeserializerError {
             &Utf8Error(ref e) => write!(f, "{}", e),
             &UnexpectedVariant(code) => write!(f, "unexpected variant code: {}", code),
             &NotSupported => write!(f, "not supported"),
+            &CannotReadBorrowed => write!(f, "cannot read borrowed"),
         }
     }
 }
@@ -72,9 +74,15 @@ macro_rules! primitive {
             use core::mem;
 
             self.read.read(mem::size_of::<$ty>())
+                .map(|x| x.map($reader))
+                .unwrap_or_else(|| {
+                    let mut buffer = <H::SmallBuffer as Default>::default();
+                    self.read.read_in_buffer(&mut buffer, mem::size_of::<$ty>())
+                        .map(move |()| $reader(buffer.as_ref()))
+                })
                 .map_err(Either::Right)
                 .map_err(ErrorAdapter::Inner)
-                .and_then(|buffer| visitor.$visitor_method($reader(&buffer)))
+                .and_then(|x| visitor.$visitor_method(x))
         }
     }
 }
@@ -117,7 +125,12 @@ where
     {
         self.read
             .read(H::char_size())
-            .map(H::decode_char::<E>)
+            .map(|x| x.map(H::decode_char::<E>))
+            .unwrap_or_else(|| {
+                let mut buffer = <H::SmallBuffer as Default>::default();
+                self.read.read_in_buffer(&mut buffer, H::char_size())
+                    .map(move |()| H::decode_char::<E>(&buffer.as_ref()))
+            })
             .map_err(Either::Right)
             .and_then(|v| v
                 .map_err(BinaryDeserializerError::WrongChar)
@@ -133,12 +146,17 @@ where
     {
         self.read
             .read(H::length_size())
-            .map(H::decode_length::<E>)
-            .map_err(Either::Right)
+            .map(|x| {
+                x
+                    .map(H::decode_length::<E>)
+                    .map_err(Either::Right)
+            })
+            .unwrap_or(Err(Either::Left(BinaryDeserializerError::CannotReadBorrowed)))
             .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
                 self.read
                     .read(length)
+                    .unwrap()
                     .map_err(Either::Right)
                     .and_then(|slice| str::from_utf8(slice)
                         .map_err(BinaryDeserializerError::Utf8Error)
@@ -165,15 +183,26 @@ where
     {
         self.read
             .read(H::length_size())
-            .map(H::decode_length::<E>)
+            .map(|x| x.map(H::decode_length::<E>))
+            .unwrap_or_else(|| {
+                let mut buffer = <H::SmallBuffer as Default>::default();
+                self.read.read_in_buffer(&mut buffer, H::length_size())
+                    .map(move |()| H::decode_length::<E>(&buffer.as_ref()[..H::length_size()]))
+            })
             .map_err(Either::Right)
             .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
                 self.read
                     .read(length)
+                    .map(|x| x.map(ToOwned::to_owned))
+                    .unwrap_or_else(|| {
+                        let mut buffer = Vec::new();
+                        buffer.resize(length, 0);
+                        self.read.read_in_buffer(&mut buffer, length)
+                            .map(move |()| buffer)
+                    })
                     .map_err(Either::Right)
                     .map_err(ErrorAdapter::Inner)
-                    .map(ToOwned::to_owned)
                     .and_then(|bytes| {
                         String::from_utf8(bytes)
                             .map_err(BinaryDeserializerError::FromUtf8Error)
@@ -190,12 +219,17 @@ where
     {
         self.read
             .read(H::length_size())
-            .map(H::decode_length::<E>)
-            .map_err(Either::Right)
+            .map(|x| {
+                x
+                    .map(H::decode_length::<E>)
+                    .map_err(Either::Right)
+            })
+            .unwrap_or(Err(Either::Left(BinaryDeserializerError::CannotReadBorrowed)))
             .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
                 self.read
                     .read(length)
+                    .unwrap()
                     .map_err(Either::Right)
                     .map_err(ErrorAdapter::Inner)
                     .and_then(|slice| visitor.visit_borrowed_bytes(slice))
@@ -218,15 +252,27 @@ where
     {
         self.read
             .read(H::length_size())
-            .map(H::decode_length::<E>)
+            .map(|x| x.map(H::decode_length::<E>))
+            .unwrap_or_else(|| {
+                let mut buffer = <H::SmallBuffer as Default>::default();
+                self.read.read_in_buffer(&mut buffer, H::length_size())
+                    .map(move |()| H::decode_length::<E>(buffer.as_ref()))
+            })
             .map_err(Either::Right)
             .map_err(ErrorAdapter::Inner)
             .and_then(|length| {
                 self.read
                     .read(length)
+                    .map(|x| x.map(ToOwned::to_owned))
+                    .unwrap_or_else(|| {
+                        let mut buffer = Vec::new();
+                        buffer.resize(length, 0);
+                        self.read.read_in_buffer(&mut buffer, length)
+                            .map(move |()| buffer)
+                    })
                     .map_err(Either::Right)
                     .map_err(ErrorAdapter::Inner)
-                    .and_then(|slice| visitor.visit_byte_buf(slice.to_owned()))
+                    .and_then(|x| visitor.visit_byte_buf(x))
             })
     }
 
@@ -236,7 +282,12 @@ where
     {
         self.read
             .read(H::variant_size())
-            .map(H::decode_variant::<E>)
+            .map(|x| x.map(H::decode_variant::<E>))
+            .unwrap_or_else(|| {
+                let mut buffer = <H::SmallBuffer as Default>::default();
+                self.read.read_in_buffer(&mut buffer, H::variant_size())
+                    .map(move |()| H::decode_variant::<E>(buffer.as_ref()))
+            })
             .map_err(Either::Right)
             .map_err(ErrorAdapter::Inner)
             .and_then(|variant| match variant {
@@ -506,7 +557,12 @@ where
             None => {
                 d.read
                     .read(H::sequence_length_size())
-                    .map(H::decode_sequence_length::<E>)
+                    .map(|x| x.map(H::decode_sequence_length::<E>))
+                    .unwrap_or_else(|| {
+                        let mut buffer = <H::SmallBuffer as Default>::default();
+                        d.read.read_in_buffer(&mut buffer, H::sequence_length_size())
+                            .map(move |()| H::decode_sequence_length::<E>(buffer.as_ref()))
+                    })
                     .map_err(Either::Right)
                     .map_err(ErrorAdapter::Inner)?
                     .unwrap_or(usize::max_value())
